@@ -96,22 +96,19 @@ def correlate_data(data,timestamps):
 
 #%%
 
-
-path = 'D:/BlindPursuit/pupil/06/000/'
-#pupil_data = load_object(path + "pupil_data")
-#gaze_list = pupil_data['gaze_positions']
-
+#path = 'D:/BlindPursuit/pupil/10/000/'
+path = sys.argv[1]
 gaze_list = load_object(path + "pupil_data_exp")
-
 timestamps = np.load(path + "world_timestamps.npy")
 
 
 # %%
 h, w = 1080, 1920    
 size = 0.1
-x = h*size*(1/7.)
-y = h*size*(1/7.)
-l = (5./7.) * h*size
+margin_scale = 75/512
+x = h*size*margin_scale
+y = h*size*margin_scale
+l = (1 - 2*margin_scale) * h*size
 
 id0 = marker_corners(x, h - y - l, l)
 id1 = marker_corners(w - x - l, h - y - l, l)
@@ -133,7 +130,6 @@ np.load = np_load_old
 
 camera_path = 'sdcalib.rmap.full.camera.pickle'
 cam_m, cam_dist, newcamera, rmap = camera(camera_path)
-
 marker_data = {"0": [], "1": [], "2": [], "3": []}
 marker_timestamps = {"0": [], "1": [], "2": [], "3": []}
 markers_in_frames = []
@@ -201,8 +197,13 @@ for frame in synchedGaze:
             gaze = denormalize(g['norm_pos'],1280, 720,flip_y=True) 
             gaze = np.float32(gaze).reshape(-1,1,2)
             gaze = cv2.fisheye.undistortPoints(gaze,cam_m,cam_dist, P=newcamera)
+            
+            head = denormalize([0.5, 0.5], 1280, 720,flip_y=True) 
+            head = np.float32(head).reshape(-1, 1, 2)
+            head = cv2.fisheye.undistortPoints(head ,cam_m,cam_dist, P=newcamera)
             screen_pos = tuple(cv2.perspectiveTransform(gaze, M).reshape(2))
-            screen_gaze_data.append([ts, index, conf, screen_pos[0], screen_pos[1]])
+            screen_pos_head = tuple(cv2.perspectiveTransform(head, M).reshape(2))
+            screen_gaze_data.append([ts, index, conf, *screen_pos, *screen_pos_head])
     if visualize and len(markers_in_frames[index]) > 1:
         cap.set(1, index)
         ret, oframe = cap.read()
@@ -211,6 +212,7 @@ for frame in synchedGaze:
         frame = cv2.warpPerspective(frame,M,(1920,1080))
 
         cv2.circle(frame, (screen_pos[0], screen_pos[1]), 10, (255,0, 0), thickness = -1)
+        cv2.circle(frame, (screen_pos_head[0], screen_pos_head[1]), 10, (0,255, 0), thickness = -1)
         frame=cv2.flip(frame,0)
         frame = cv2.resize(frame, (0,0), fx=0.5, fy=0.5) 
         cv2.imshow('undistorted',frame)

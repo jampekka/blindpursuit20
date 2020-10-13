@@ -1,16 +1,9 @@
 import numpy as np
 import cv2
-import os, sys
-import matplotlib.pyplot as plt
 import pickle
-from scipy.interpolate import interp1d
 from file_methods import save_object, load_object
 import file_methods
-import argh
-import square_marker_detect_st as markerdetect
-from datetime import timedelta
-from shutil import copyfile
-from gaze_to_world_coordinates import undistort_points_fisheye
+import square_marker_detect as markerdetect
 
 
 def marker_positions(camera_spec, videofile, outfile, path, new_camera="camera", start_time=0.0, end_time=float("inf"), visualize=False,

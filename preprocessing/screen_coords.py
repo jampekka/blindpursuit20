@@ -2,11 +2,9 @@
 #%%
 import numpy as np
 import cv2
-import os, sys
-import matplotlib.pyplot as plt
 import pickle
 from scipy.interpolate import interp1d
-from file_methods import save_object, load_object
+from file_methods import load_object
 
 
 
@@ -98,10 +96,15 @@ def correlate_data(data,timestamps):
 
 #%%
 
-path = 'D:/BlindPursuit/pupil/10/000/'
-pupil_data = load_object(path + "pupil_data")
-gaze_list = pupil_data['gaze_positions']
+
+path = 'D:/BlindPursuit/pupil/06/000/'
+#pupil_data = load_object(path + "pupil_data")
+#gaze_list = pupil_data['gaze_positions']
+
+gaze_list = load_object(path + "pupil_data_exp")
+
 timestamps = np.load(path + "world_timestamps.npy")
+
 
 # %%
 h, w = 1080, 1920    

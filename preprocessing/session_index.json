@@ -1,0 +1,53 @@
+{
+  "1": {
+    "participant": "1",
+    "pupil_folder": "2020_02_13/001",
+    "log_folder": "2020-02-13T11-08-31"
+  },
+  "2": {
+    "participant": "2",
+    "pupil_folder": "2020_02_14/001",
+    "log_folder": "2020-02-14T10-44-23"
+  },
+  "3": {
+    "participant": "3",
+    "pupil_folder": "2020_02_18/001",
+    "log_folder": "2020-02-18T09-39-43"
+  },
+  "4": {
+    "participant": "4",
+    "pupil_folder": "2020_02_18/002",
+    "log_folder": "2020-02-18T12-39-16"
+  },
+  "5": {
+    "participant": "5",
+    "pupil_folder": "2020_02_19/001",
+    "log_folder": "2020-02-19T13-11-31"
+  },
+  "6": {
+    "participant": "6",
+    "pupil_folder": "2020_02_20/000",
+    "log_folder": "2020-02-20T08-45-30"
+  },
+  "7": {
+    "participant": "7",
+    "pupil_folder": "2020_02_24/000",
+    "log_folder": "2020-02-24T08-32-26"
+  },
+  "8": {
+    "participant": "8",
+    "pupil_folder": "2020_02_25/001",
+    "log_folder": "2020-02-25T10-39-14"
+  },
+  "9": {
+    "participant": "9",
+    "pupil_folder": "2020_02_25/002",
+    "log_folder": "2020-02-25T16-08-21"
+  },
+  "10": {
+    "participant": "10",
+    "pupil_folder": "2020_02_27/000",
+    "log_folder": "2020-02-27T11-13-25"
+  }
+}
+

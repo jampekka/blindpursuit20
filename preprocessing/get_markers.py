@@ -6,7 +6,7 @@ import file_methods
 import square_marker_detect as markerdetect
 
 
-def marker_positions(camera_spec, videofile, outfile, path, new_camera="camera", start_time=0.0, end_time=float("inf"), visualize=False,
+def marker_positions(camera_spec, videofile, outfile, new_camera=None, start_time=0.0, end_time=float("inf"), visualize=False,
         output_camera=None, write = False):
     camera = pickle.load(open(camera_spec, 'rb'), encoding='bytes')
     image_resolution = camera[b'resolution']
@@ -29,9 +29,10 @@ def marker_positions(camera_spec, videofile, outfile, path, new_camera="camera",
     camera['camera_matrix'] = rect_camera_matrix
     camera['dist_coefs'] = None
     camera['resolution'] = image_resolution
-    save_object(camera, new_camera)
+    if new_camera is not None:
+        save_object(camera, new_camera)
 
-    rectify_gaze_data(path, K, D, rect_camera_matrix)
+    #rectify_gaze_data(path, K, D, rect_camera_matrix)
 
     #if new_camera is not None:
     #    pickle.dump(camera, open(new_camera, 'w'))
@@ -136,14 +137,15 @@ def normalize(pos, width, height,flip_y=False):
         return x,1-y
     return x,y
 
-path = 'D:/BlindPursuit/pupil/10/000/'
-vid_path = path + "world.mp4"
+if __name__ == '__main__':
+    path = 'D:/BlindPursuit/pupil/10/000/'
+    vid_path = path + "world.mp4"
 
-marker_cache = file_methods.Persistent_Dict(path + 'square_marker_cache')
-marker_cache['version'] = 2
+    marker_cache = file_methods.Persistent_Dict(path + 'square_marker_cache')
+    marker_cache['version'] = 2
 
-markers = marker_positions('sdcalib.rmap.full.camera.pickle', vid_path, path + 'markers_new.npy', path, visualize = False)
+    markers = marker_positions('sdcalib.rmap.full.camera.pickle', vid_path, path + 'markers_new.npy', path, visualize = False)
 
-marker_cache['marker_cache'] = markers
-marker_cache['inverted_markers'] = False
-marker_cache.close()
+    marker_cache['marker_cache'] = markers
+    marker_cache['inverted_markers'] = False
+    marker_cache.close()

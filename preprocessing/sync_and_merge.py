@@ -135,10 +135,10 @@ def sync_and_merge_session(gaze_export, pupil_base, experiment_base):
     #camera_spec = "sdcalib.rmap.full.camera.pickle"
     camera = pickle.load(open(camera_spec, 'rb'), encoding='bytes')
     
+    gaze_data = pd.read_csv(gaze_export)
+    
     marker_times = np.load(pupil_base / "world_timestamps.npy")
     markerss = get_marker_positions(pupil_base)
-    
-    gaze_data = pd.read_csv(gaze_export)
     gaze_data = map_to_screen_coords(camera, gaze_data, markerss, marker_times)
 
     target = load_experiment(experiment_base / "trajlog.jsons")
@@ -147,7 +147,7 @@ def sync_and_merge_session(gaze_export, pupil_base, experiment_base):
     # TODO: Refactor outta here!
     system_to_recv = np.polynomial.Polynomial.fit(target.system_ts.values, target.recv_ts_mono, 1)
     target['pupil_ts'] = system_to_recv(target.system_ts.values)
-    
+
     data = gaze_data
     def resample(field, **kwargs):
         return interp1d(target['pupil_ts'].values, target[field].values, axis=0, bounds_error=False, **kwargs)(data['gaze_timestamp'].values)
@@ -158,7 +158,8 @@ def sync_and_merge_session(gaze_export, pupil_base, experiment_base):
     
     # Resample flags using nearest 
     flagfields = 'is_visible', 'scenario', 'signtype', 'trial_number'
-    match = target.pupil_ts.values.searchsorted(data.gaze_timestamp.values) - 1
+    match = interp1d(target.pupil_ts.values, np.arange(len(target)), kind='nearest', bounds_error=False, fill_value=(0, -1))(data.gaze_timestamp.values).astype(int)
+    data['log_match_ts'] = target.pupil_ts.values[match]
     for f in flagfields:
         data[f] = target[f].values[match]
 
@@ -194,6 +195,7 @@ def sync_and_merge_participant(participant_id, data_dir='../data'):
 def sync_and_merge(output):
     data = []
     for pid in session_index:
+        print("Processing participant", pid)
         d = sync_and_merge_participant(pid)
         d['participant_id'] = int(pid)
         data.append(d)

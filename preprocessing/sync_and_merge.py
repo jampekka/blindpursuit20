@@ -131,6 +131,8 @@ def load_experiment(experiment_log):
     log = extract_log.load_data((json.loads(r) for r in open(experiment_log)))
     return log
 
+RECV_TS_LAG = 0.0665 # Estimated using pepsync
+
 def sync_and_merge_session(gaze_export, pupil_base, experiment_base):
     #camera_spec = "sdcalib.rmap.full.camera.pickle"
     camera = pickle.load(open(camera_spec, 'rb'), encoding='bytes')
@@ -146,7 +148,9 @@ def sync_and_merge_session(gaze_export, pupil_base, experiment_base):
     # TODO: Better sync!!
     # TODO: Refactor outta here!
     system_to_recv = np.polynomial.Polynomial.fit(target.system_ts.values, target.recv_ts_mono, 1)
-    target['pupil_ts'] = system_to_recv(target.system_ts.values)
+
+    lag = np.median(target.recv_ts_mono - target.system_ts.values) + RECV_TS_LAG
+    target['pupil_ts'] = target.system_ts.values + lag
 
     data = gaze_data
     def resample(field, **kwargs):

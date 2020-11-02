@@ -20,57 +20,56 @@ df <- df %>%
   select(participant, ts, conf, gazeX:target_y, is_visible:trial_number, gazeX_s:end_seg_class) %>%
   mutate(is_cue = if_else(signtype == "cue", 1, 0),
          is_target = if_else(signtype == "target", 1, 0),
-         is_success = if_else(signtype == "success", 1, 0))
+         is_success = if_else(signtype == "success", 1, 0)) %>%   
+  mutate(is_trial = (is_cue == 1) | (is_target == 1)) # is_trial => trial without response, query, feedback
 
+# add segment_fill to colour data points by segment
+# add is_gap to denote gaps between (circular) blocks; TODO: fix this later
+# TODO: check that participant grouping works
+# df <- df %>%
+#   group_by(participant) %>%
+#   mutate(is_gap = (ts - lag(ts)) > 2,
+#          is_gap = replace(is_gap, row_number() == 1, FALSE)) %>%
+#   group_by(participant) %>%
+#   arrange(participant, ts) %>%
+#   mutate(seg_fill = begin_seg_class) %>%
+#   fill(seg_fill) %>%
+#   mutate(seg_fill = if_else(is_gap, NA_character_, seg_fill)) %>%
+#   fill(seg_fill, .direction = "up") %>%
+#   ungroup 
 
-```
+#  fill(seg_fill_end, .direction = "up") %>%
+  # remove points where the two filled segments do not match (-> discrepancies caused by gaps) BUT this also removes all points where segment changes; therefore shift begin by 1
+#  mutate(seg_fill = if_else(seg_fill_begin == seg_fill_end, seg_fill_begin, NA_character_)) %>%
 
-begin_segment_index: index of the segment that begins at this timestamp
-
-
-```{r fig.width=10}
-# collect begin and end points to new df(s)
-# saccades have their own indices (new) from merging
-segments <- df %>%
-  filter(!is.na(timept), !is.na(trial_number)) %>%
-  mutate(timept = recode(timept, begin = "launch", end = "landing"),
-           segment_class = recode(segment_class, `1` = "fixation", `2` = "saccade", `3` = "pursuit", `4` = "pursuit"))  %>%
-  select(participant, ts, timept, segment_class, segment_index) %>%
-  spread(timept, ts) %>%
-  arrange(participant, launch) %>%
-  mutate(dur = landing - launch) 
-
-segments %>%
-  ggplot(aes(dur, fill=segment_class)) + 
-  geom_density(alpha=.4) + 
-  facet_wrap(~participant, scales="free") +
-  theme_bw()
-
-
-```
-```{r}
-segment_times <- segments %>%
-  gather(segment, ts, landing, launch) %>%
-  select(-segment_index, -dur) %>%
-  group_by(participant, segment) %>%
+df <- df %>%
+  group_by(participant) %>%
+  mutate(is_gap = (ts - lag(ts)) > 2,
+         is_gap = replace(is_gap, row_number() == 1, FALSE)) %>%
+  group_by(participant, is_gap) %>%
   arrange(participant, ts) %>%
-  mutate(row = row_number()) %>%
-  spread(segment, segment_class) %>%
-  select(-row)
+  mutate(seg_fill = lag(begin_seg_class)) %>%
+  mutate(seg_fill = if_else(is.na(seg_fill), end_seg_class, seg_fill)) %>%
+  fill(seg_fill) %>%
+  mutate(seg_fill = if_else(is_gap, NA_real_, seg_fill)) %>%
+  ungroup 
 
 ```
+
+
 
 Fix coordinates for gazeX/Y, gazeX/Y_s, target_x/y
 
+**now fixed before segmentation**
 
 ```{r}
-degs_per_pix = 80/1920
-
-df <- df %>%
-  mutate(across(c(gazeX, gazeX_s, target_x), 
-                ~(. - 1920/2) *degs_per_pix),
-         across(c(gazeY, gazeY_s, target_y), 
-                ~(. - 1080/2) *degs_per_pix)) 
+# degs_per_pix = 80/1920
+# 
+# df <- df %>%
+#   mutate(across(c(gazeX, gazeX_s, target_x),
+#                 ~(. - 1920/2) *degs_per_pix),
+#          across(c(gazeY, gazeY_s, target_y),
+#                 ~(. - 1080/2) *degs_per_pix))
 
 
 ```
@@ -79,43 +78,38 @@ df <- df %>%
 
 
 ```{r}
-# df <- df %>%
-#   select(participant, ts, conf:is_success, condition, trial_number:gazeY_s, segment_class_2) %>%
-#   rename(segment_class = segment_class_2)
-
-# df <- df %>%
-#   group_by_all() %>% 
-#   filter(row_number() == 1) %>% ungroup
-
 
 df <- df %>% 
-  mutate(begin_seg_class = recode(begin_seg_class, `1` = "fixation", `2` = "saccade", `3` = "pursuit", `4` = "pursuit"),
-         end_seg_class = recode(end_seg_class, `1` = "fixation", `2` = "saccade", `3` = "pursuit", `4` = "pursuit")) %>%
+  mutate(across(c(begin_seg_class, end_seg_class, seg_fill, segment_class_2), 
+                ~recode(., `1` = "fixation", `2` = "saccade", 
+                        `3` = "pursuit", `4` = "pursuit"))) %>%
     mutate(target_class = case_when(is_target == 1 ~ "target",
-                           is_visible == 1 ~ "visible",
-                           is_visible == 0 ~ "hidden",
+                           (is_visible == 1) & (is_cue == 1) ~ "visible",
+                           (is_visible == 0) & (is_cue == 1) ~ "hidden",
                            TRUE  ~ NA_character_) %>% 
              factor(levels = c("visible", "hidden", "target"))) %>%
     mutate(target_phase_R = atan2(target_x, target_y),
            gaze_phase_R = atan2(gazeX_s, gazeY_s),
            target_radius = sqrt((target_x)^2 + (target_y)^2),
-           gaze_radius = sqrt((gazeX_s)^2 + (gazeY_s)^2)) %>%
+           gaze_radius = sqrt((gazeX_s)^2 + (gazeY_s)^2),
+           phase_diff = gaze_phase_R - target_phase_R,
+           radius_diff = gaze_radius - target_radius,
+           x_rel = gazeX_s - target_x,
+           y_rel = gazeY_s - target_y) %>%
   arrange(participant, ts) 
 
 ```
 
-
 ## Sanity checks
 
 Create occluded_trial and success_trial variables
-Note some erroneous trials like p8 trial 317 (due to bad data), hence the filter
+Note some erroneous trials like p8 trial 317 (due to missing data), hence the filter
 ```{r}
 
 df <- df %>%
   group_by(participant, trial_number) %>%
   mutate(trial_type = ifelse((mean(is_visible) == 1) & (trial_number < 300), "visible_trial", "occluded_trial")) %>%
   ungroup
-
 
 
 # trial_number now contains query, success, etc.
@@ -127,13 +121,65 @@ df <- df %>%
 
 ```
 
+#### Extract segment info
 
-Separate trial data  
+begin_segment_index: index of the segment that begins at this timestamp
+
+**TODO**: remove segments over "gaps" between blocks
+
+```{r fig.width=10}
+# collect begin and end points to new df(s)
+# segments <- df %>%
+# #  filter(!is.na(timept), is_cue == 1) %>%
+#   mutate(timept = recode(timept, begin = "launch", end = "landing"),
+#            segment_class = recode(segment_class, `1` = "fixation", `2` = "saccade", `3` = "pursuit", `4` = "pursuit"))  %>%
+#   select(participant, ts, timept, segment_class, segment_index) %>%
+#   spread(timept, ts) %>%
+#   arrange(participant, launch) %>%
+#   mutate(dur = landing - launch) 
+# 
+
+
+segments <- df %>%
+  filter((!is.na(begin_seg_class)) | (!is.na(end_seg_class))) %>%
+ # select(participant, ts, begin_segment_index:end_seg_class) %>%
+  rename(begin_seg_index = begin_segment_index) %>%
+  arrange(participant, begin_seg_index) %>%
+  mutate(end_seg_index = lag(begin_seg_index)) %>%
+  mutate(across(ends_with("_seg_index"), as.character)) %>%
+  pivot_longer(cols = c(begin_seg_index, end_seg_index, begin_seg_class, end_seg_class),
+               names_to = c("timept", "var"),
+               values_to = "value",
+               names_pattern = "(.*)_seg_(.*)") %>%
+  spread(var, value) %>%
+  mutate(timept = recode(timept, begin = "launch", end = "landing")) %>%
+  arrange(participant, index) %>%
+  relocate(participant, index, timept, class)
+
+
+segment_durations <- segments %>%
+  select(participant:ts, target_class) %>%
+  spread(timept, ts) %>%
+  mutate(dur = landing - launch)
+
+segment_durations %>%
+  filter(dur < 10) %>%
+  ggplot(aes(dur, fill=class)) +
+  geom_density(alpha=.4) +
+  facet_wrap(~participant, scales="free") +
+  theme_bw()
+
+```
+
+
+
+#### Separate trial data  
+
 **NOTE: trial_number now contains query, success, etc. The numbers are also different (used to start at 60 for circular trials). **
 
 ```{r}
 df_trials <- df %>%
-  filter(!is.na(trial_number)) %>%
+  filter(is_trial) %>%
   group_by(participant, trial_number) %>%
   mutate(trial_ts = ts - min(ts)) %>%
   ungroup %>%
@@ -141,13 +187,6 @@ df_trials <- df %>%
 
 ```
 
-Add segment times
-
-```{r}
-df_trials <- df_trials %>%
-  left_join(segment_times, by = c("participant", "ts"))
-
-```
 
 # Circle task
 
@@ -155,7 +194,7 @@ df_trials <- df_trials %>%
 
 ```{r}
 df_trials %>% 
-  filter(participant == 1, trial_number == 175) %>%
+  filter(participant == 1, trial_number == 174) %>%
   ggplot(aes(target_x, target_y, color = target_phase_R)) + geom_path(size=3, lineend = "round") + 
   scale_color_gradient2() +
   theme_bw() +
@@ -221,8 +260,11 @@ Random sampling of time segments
 
 n samples for visible / occluded timepoints --> windows of width 20s around them
 
+TODO: Participant 8 bad data!
+
 ```{r}
 times <- df %>%
+  filter((participant != 8) | (ts < 99000), is_trial) %>%
   group_by(participant, is_visible) %>%
   slice_sample(n = 3) %>%
   ungroup %>%
@@ -235,7 +277,8 @@ times <- df %>%
 plot_segm_times <- function(sbj, ts_center) {
 
   rects <- df %>%
-    filter(participant == sbj, between(ts, ts_center - 10, ts_center + 10)) %>%
+    filter(participant == sbj, between(ts, ts_center - 10, ts_center + 10), 
+           !is.na(trial_number)) %>%
     arrange(ts) %>%
     group_by(target_class_id = data.table::rleid(target_class), target_class) %>% 
     summarise(xmin = min(ts),
@@ -246,8 +289,9 @@ plot_segm_times <- function(sbj, ts_center) {
     title <- paste("Participant", sbj)
 
   df %>%
-    filter(participant == sbj, between(ts, ts_center - 10, ts_center + 10)) %>%
-    select(ts, gazeX, gazeY, gazeX_s, gazeY_s, segment_class, target_class) %>%
+    filter(participant == sbj, between(ts, ts_center - 10, ts_center + 10), 
+           !is.na(trial_number)) %>%
+    select(ts, gazeX, gazeY, gazeX_s, gazeY_s, seg_fill, target_class) %>%
     rename(segm_X = gazeX_s,
            segm_Y = gazeY_s,
            gaze_X = gazeX,
@@ -258,15 +302,15 @@ plot_segm_times <- function(sbj, ts_center) {
     ggplot() +
     geom_rect(data=rects, aes(xmin=xmin, ymin=ymin, xmax=xmax, ymax=ymax,
         fill=target_class), alpha = .4) +
-    geom_path(aes(ts, gaze), alpha = .8) +
-    geom_path(aes(ts, segm, color = segment_class, group=1), alpha = .8) +
+    geom_path(aes(ts, gaze, color = "original gaze"), alpha = .8) +
+    geom_path(aes(ts, segm, color = seg_fill, group=1), alpha = .8) +
     facet_grid(coord~.) +
     labs(x = "time", title = title, colour = "") +
     scale_y_continuous(limits = c(-20, 20)) +
     theme_bw() +
-    scale_color_manual(breaks=color_breaks,
-                       values = color_vals,
-                     drop = F)  + 
+    scale_color_manual(breaks=c(color_breaks, "original gaze"),
+                       values = c(color_vals, "original gaze" = "darkgrey"),
+                     drop = F)   + 
     scale_fill_manual(breaks=color_breaks,
                        values = color_vals,
                      drop = F) 
@@ -279,10 +323,10 @@ plot_segm_times <- function(sbj, ts_center) {
 ```{r fig.width=14, fig.height=7, message=F}
 segment_plots_times <- mapply(plot_segm_times, times$participant, times$ts, SIMPLIFY = F)
  
-
-# pdf("time_series_segments.pdf", width = 12, height = 7)
-# invisible(lapply(segment_plots_times, print))
-# dev.off()
+ 
+pdf("time_series_segments.pdf", width = 12, height = 7)
+ invisible(lapply(segment_plots_times, print))
+ dev.off()
 ```
 
 
@@ -352,8 +396,8 @@ plot_segm <- function(sbj, trialn) {
     scale_color_manual(breaks=c(color_breaks, "isochronic lines"),
                        values = c(color_vals, "isochronic lines" = "orange"),
                      drop = F)  + 
-    scale_fill_manual(breaks=c(color_breaks, "isochronic lines"),
-                       values = c(color_vals, "isochronic lines" = "orange"),
+    scale_fill_manual(color_breaks,
+                       values = color_vals,
                      drop = F) +
     coord_fixed(ratio = .05)  + 
   guides(col = guide_legend(override.aes = list(shape = 15, size = 8)))
@@ -553,11 +597,11 @@ saccades %>%
 ```
 
 
-## Gaze distribution relative to target (at target reappearance)
+# Gaze distribution relative to target (at target reappearance)
 
 ### Participant-wise
 
-```{r fig.width = 7, fig.height=20}
+```{r fig.width = 10, fig.height=15}
 df_trials %>%
   mutate(target_radius = sqrt((target_x)^2 + (target_y)^2),
          gaze_radius = sqrt((gazeX_s)^2 + (gazeY_s)^2),
@@ -565,14 +609,15 @@ df_trials %>%
          radius_diff = gaze_radius - target_radius,
          x_rel = gazeX_s - target_x,
          y_rel = gazeY_s - target_y,
-         is_visible = recode(is_visible, `0` = "hidden", `1` = "visible")) %>%
+         #is_visible = recode(is_visible, `0` = "hidden", `1` = "visible")
+         ) %>%
   filter(is_target == 1, trial_type == "occluded_trial") %>% 
   group_by(participant, trial_number, success_trial) %>%
   slice(1) %>%
   ungroup %>%
   mutate(success_trial = ifelse(success_trial == 1, "correct", "false")) %>%
   ggplot(aes(x_rel, y_rel)) + geom_point(alpha = .2) +
-  facet_wrap(participant~success_trial, ncol = 2) +
+  facet_wrap(participant~success_trial, ncol = 4) +
   geom_vline(aes(xintercept = 0), alpha = .5) +
   geom_hline(aes(yintercept = 0), alpha = .5) +
   scale_x_continuous(limits = c(-20, 20)) +
@@ -585,51 +630,37 @@ df_trials %>%
 
 ```
 
-```{r fig.width = 7, fig.height=20}
+```{r }
 df_trials %>%
-  mutate(target_radius = sqrt((target_x)^2 + (target_y)^2),
-         gaze_radius = sqrt((gazeX_s)^2 + (gazeY_s)^2),
-         phase_diff = gaze_phase_R - target_phase_R,
-         radius_diff = gaze_radius - target_radius,
-         x_rel = gazeX_s - target_x,
-         y_rel = gazeY_s - target_y,
-         is_visible = recode(is_visible, `0` = "hidden", `1` = "visible")) %>%
-  filter(is_target == 1, trial_type == "occluded_trial") %>%
+  filter(is_target == 1) %>%
   group_by(participant, trial_number, success_trial) %>%
   slice(1) %>%
   ungroup %>%
   mutate(success_trial = ifelse(success_trial == 1, "correct", "false")) %>%
-  ggplot(aes(phase_diff)) + 
-  geom_histogram(binwidth=.15, position = "identity", alpha = .6) +
+  ggplot(aes(phase_diff, fill = trial_type)) + 
+  geom_histogram(binwidth=.2, position = "identity", alpha = .6) +
   scale_x_continuous(limits = c(-3.5,3.5)) +
   geom_vline(aes(xintercept = 0), alpha = .5) +
-  facet_wrap(participant~success_trial, ncol = 2, scales = "free_y") +
+  facet_wrap(participant~success_trial, ncol = 6, scales = "free_y") +
   labs(title = "Phase difference between gaze and target (at target reappearance)",
-       subtitle = "Participant-wise distributions, occluded trials") +
+       subtitle = "Participant-wise distributions, visible/occluded trials") +
   theme_bw() 
 
 
 ```
 
-```{r fig.width = 7, fig.height=20}
+```{r }
 df_trials %>%
-  mutate(target_radius = sqrt((target_x)^2 + (target_y)^2),
-         gaze_radius = sqrt((gazeX_s)^2 + (gazeY_s)^2),
-         phase_diff = gaze_phase_R - target_phase_R,
-         radius_diff = gaze_radius - target_radius,
-         x_rel = gazeX_s - target_x,
-         y_rel = gazeY_s - target_y,
-         is_visible = recode(is_visible, `0` = "hidden", `1` = "visible")) %>%
-  filter(is_target == 1, trial_type == "occluded_trial") %>%
+  filter(is_target == 1) %>%
   group_by(participant, trial_number, success_trial) %>%
   slice(1) %>%
   ungroup %>%
   mutate(success_trial = ifelse(success_trial == 1, "correct", "false")) %>%
-  ggplot(aes(radius_diff)) + 
+  ggplot(aes(radius_diff, fill = trial_type)) + 
   geom_histogram(binwidth=1, position = "identity", alpha = .6) +
   scale_x_continuous(limits = c(-20,20)) +
   geom_vline(aes(xintercept = 0), alpha = .5) +
-  facet_wrap(participant~success_trial, ncol = 2, scales = "free_y") +
+  facet_wrap(participant~success_trial, ncol = 6, scales = "free_y") +
   labs(title = "Radius difference between gaze and target (at target reappearance)",
        subtitle = "Participant-wise distributions, occluded trials") +
   theme_bw() 

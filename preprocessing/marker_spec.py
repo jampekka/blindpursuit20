@@ -26,7 +26,8 @@ def get_marker_spec():
     marker_scale = 0.1
     
     marker_size = h*marker_scale
-    marker_margin_scale = 74/512
+    #marker_margin_scale = 74/512
+    marker_margin_scale = 1/7
     marker_margin = marker_margin_scale*marker_size
 
     marker_extent = marker_size - marker_margin*2
@@ -44,8 +45,8 @@ def get_marker_spec():
     markers = {
             "0": marker_corners(left, top, marker_extent),
             "1": marker_corners(right, top, marker_extent),
-            "2": marker_corners(right, bottom, marker_extent),
-            "3": marker_corners(left, bottom, marker_extent),
+            "3": marker_corners(right, bottom, marker_extent),
+            "2": marker_corners(left, bottom, marker_extent),
             }
 
     return markers
@@ -61,3 +62,4 @@ def get_marker_spec():
     marker_dict = {"0": id0, "1": id1, "2": id2, "3": id3}
 
     return marker_dict
+

@@ -43,7 +43,7 @@ def marker_corners(x,y,l):
     c3 = [x, y + l]
     return [c0, c1, c2, c3]
 
-def map_to_screen_coords(camera, gaze_data, markerss, marker_times):
+def map_to_screen_coords_old(camera, gaze_data, markerss, marker_times):
     width, height = camera[b'resolution']
 
     cam_m = camera[b'camera_matrix']
@@ -121,6 +121,62 @@ def map_to_screen_coords(camera, gaze_data, markerss, marker_times):
         
         gazes.append(gaze)
         heads.append(head)
+    
+    gaze_data['gaze_screen_x'], gaze_data['gaze_screen_y'] = np.array(gazes).T
+    gaze_data['head_screen_x'], gaze_data['head_screen_y'] = np.array(heads).T
+    
+    return gaze_data
+
+import headtracking
+from marker_spec import get_marker_spec
+def map_to_screen_coords(camera, gaze_data, markerss, marker_times):
+    width, height = camera[b'resolution']
+
+    cam_m = camera[b'camera_matrix']
+    cam_dist = camera[b'dist_coefs']
+    assert camera[b'distortion_model'] == b'fisheye'
+    newcamera = camera[b'rect_camera_matrix']
+    #gaze_x, gaze_y = gaze_data[['norm_pos_x', 'norm_pos_y']].T.copy()
+    #gaze_x, gaze_y = denormalize(x, y, width, height, flip_y=True)
+    
+    h, w = 1080, 1920    
+    """
+    size = 0.1
+    margin_scale = 75/512
+    x = h*size*margin_scale
+    y = h*size*margin_scale
+    l = (1 - 2*margin_scale) * h*size
+
+    id0 = marker_corners(x, h - y - l, l)
+    id1 = marker_corners(w - x - l, h - y - l, l)
+    id2 = marker_corners(x,y,l)
+    id3 = marker_corners(w - x - l, y, l)
+    marker_dict = {"0": id0, "1": id1, "2": id2, "3": id3}
+    """
+    marker_dict = get_marker_spec()
+
+    head_m, head_c = headtracking.poser(1/30, newcamera, markerss, marker_dict)
+    pupil_to_marker_i = interp1d(marker_times, np.arange(len(marker_times)))
+
+    gazes = []
+    heads = []
+
+    def screen_width_to_pix(xy):
+        xy[0] *= h
+        xy[0] += w/2
+        xy[1] *= h
+        xy[1] += h/2
+        return xy
+
+
+    for ts, gx, gy in gaze_data[['gaze_timestamp', 'norm_pos_x', 'norm_pos_y']].values:
+        gaze = np.array(denormalize(gx, gy, width, height, flip_y=True))
+        gaze = cv2.fisheye.undistortPoints(gaze.reshape(-1, 1, 2), cam_m, cam_dist).reshape(2)
+        head_pose = head_m(pupil_to_marker_i(ts))
+        gaze = headtracking.project_to_zero_plane(head_pose, *np.arctan(-gaze))
+        head = headtracking.project_to_zero_plane(head_pose, 0.0, 0.0)
+        gazes.append(screen_width_to_pix(gaze))
+        heads.append(screen_width_to_pix(head))
     
     gaze_data['gaze_screen_x'], gaze_data['gaze_screen_y'] = np.array(gazes).T
     gaze_data['head_screen_x'], gaze_data['head_screen_y'] = np.array(heads).T

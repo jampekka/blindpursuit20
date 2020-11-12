@@ -230,11 +230,11 @@ TODO: Participant 8 bad data!
 ```{r}
 set.seed(1)
 times <- df %>%
-  filter((participant != 8) | (ts < 99000), is_trial) %>%
+  filter((participant != 8) | (ts < 99000), trial_type == "occluded_trial", is_trial) %>%
   group_by(participant, is_visible) %>%
   slice_sample(n = 3) %>%
   ungroup %>%
-  select(participant, ts)
+  select(participant, ts) %>% arrange(participant, ts)
 
 ```
 
@@ -741,16 +741,6 @@ df <- df %>%
          head_deg_y = (head_screen_y - 1080/2) * degs_per_pix) 
 
 
-df %>%
-    filter(participant == sbj, between(ts, ts_center - 20, ts_center + 20), 
-           !is.na(trial_number)) %>%
-#  gather(var, value, head_screen_x, head_deg_x) %>%
-  ggplot(aes(ts, head_deg_x)) + geom_line(alpha = .6) +
-  scale_y_continuous(name = "Degrees",
-    sec.axis = sec_axis( trans=~./degs_per_pix + 1920/2, name="Screen coordinates")) +
-  theme_bw()
-
-
 ```
 
 
@@ -758,6 +748,15 @@ df %>%
 
 plot_head <- function(sbj, ts_center) {
 
+    rects <- df %>%
+    filter(participant == sbj, between(ts, ts_center - 20, ts_center + 20), 
+           !is.na(trial_number), !is.na(target_class)) %>%
+    arrange(ts) %>%
+    group_by(target_class_id = data.table::rleid(target_class), target_class) %>% 
+    summarise(xmin = min(ts),
+              xmax = max(ts)) %>%
+    ungroup %>%
+    mutate(ymin = -20, ymax = 20)
 
     title <- paste("Participant", sbj)
 
@@ -768,9 +767,11 @@ plot_head <- function(sbj, ts_center) {
     mutate(var = recode(var, gazeX_s = "gaze", head_deg_x = "head"))  %>%
 #    mutate(var = str_remove(var, "head_deg_")) %>%
     ggplot() +
+   geom_rect(data=rects, aes(xmin=xmin, ymin=ymin, xmax=xmax, ymax=ymax,
+        fill=target_class), alpha = .3) +
     geom_path(aes(ts, value, color = var), alpha = .8) +
 #    facet_grid(var~., switch = "y", scales = "free_y") +
-    labs(x = "time (s)", title = title, y = "", color = "") +
+    labs(x = "time (s)", title = title, y = "", color = "", fill = "") +
   scale_y_continuous(limits = c(-20, 20), name = "X (degrees)",
     sec.axis = sec_axis( trans=~./degs_per_pix + 1920/2, name="screen coordinates")) +
     theme_bw()  +
@@ -779,7 +780,10 @@ plot_head <- function(sbj, ts_center) {
                                         axis.title.x = element_blank(),
                                         axis.text.y.right = element_text(color = "grey"),
                                         axis.title.y.right = element_text(color = "grey"),
-                                        axis.ticks.y.right = element_line(color = "grey"))
+                                        axis.ticks.y.right = element_line(color = "grey")) +
+          scale_fill_manual(breaks=c("visible", "hidden", "target", " "),
+                       values = color_vals[3:6],
+                     drop = F)  
   
     yplot <- df %>%
     filter(participant == sbj, between(ts, ts_center - 20, ts_center + 20), 
@@ -788,17 +792,22 @@ plot_head <- function(sbj, ts_center) {
     mutate(var = recode(var, gazeY_s = "gaze", head_deg_y = "head"))  %>%
 #    mutate(var = str_remove(var, "head_deg_")) %>%
     ggplot() +
+   geom_rect(data=rects, aes(xmin=xmin, ymin=ymin, xmax=xmax, ymax=ymax,
+        fill=target_class), alpha = .3) +
     geom_path(aes(ts, value, color = var), alpha = .8) +
  #   facet_grid(var~., switch = "y", scales = "free_y") +
-    labs(x = "time (s)", y = "", color = "") +
+    labs(x = "time (s)", y = "", color = "", fill = "") +
   scale_y_continuous(limits = c(-20, 20), name = "Y (degrees)",
     sec.axis = sec_axis( trans=~./degs_per_pix + 1080/2, name="screen coordinates")) +
     theme_bw()   +
     theme(axis.text.y.right = element_text(color = "grey"),
                                         axis.title.y.right = element_text(color = "grey"),
-                                        axis.ticks.y.right = element_line(color = "grey"))
+                                        axis.ticks.y.right = element_line(color = "grey")) +
+          scale_fill_manual(breaks=c("visible", "hidden", "target", " "),
+                       values = color_vals[3:6],
+                     drop = F)  
 
-    p <- ggarrange(xplot, yplot, ncol = 1)
+    p <- ggarrange(xplot, yplot, ncol = 1, common.legend = T)
     
     p
     
@@ -806,7 +815,7 @@ plot_head <- function(sbj, ts_center) {
 
 ```
 
-```{r}
+```{r message=F}
 headtr_plots_times <- mapply(plot_head, times$participant, times$ts, SIMPLIFY = F)
  
 ```
@@ -818,6 +827,12 @@ invisible(lapply(headtr_plots_times, print))
 dev.off()
 
 ```
+
+```{r}
+# saveRDS(df_trials, 'df_trials.RDS')
+# saveRDS(saccades, 'saccades.RDS')
+```
+
 
 # Results
 
@@ -882,6 +897,7 @@ broom.mixed::augment(fit) %>%
   gather(var, value, freq, .fitted) %>%
   ggplot(aes(var, value, fill = target_class)) + 
   geom_boxplot(alpha=.3) + 
+  facet_wrap(~participant) +
   scale_y_continuous(limits = c(0,10)) +
   theme_bw() +
   labs(title = "Observed values vs. predictions based on the fixed effect of target class")
@@ -1023,6 +1039,8 @@ occl_ts_saccades <- df_trials %>%
   full_join(saccadetimes, by = c("participant", "trial_number", "occl_ts"))
 
 ```
+
+
 
 Occlusion ts vs. cumulative saccades; if constant over time, should be linear
 ```{r}

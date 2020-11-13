@@ -6,7 +6,7 @@ output:
     toc: yes
 ---
 
-```{r setup}
+```{r setup, include=F}
 library(ggpubr)
 library(tidyverse)
 library(lme4)
@@ -18,9 +18,6 @@ library(broom.mixed)
 df_trials <- readRDS('df_trials.RDS')
 saccades <- readRDS('saccades.RDS')
 
-df_trials <- df_trials %>% filter(participant != 8) # remove participant 8 because of bad data
-saccades <- saccades %>% filter(participant != 8) 
-
 ```
 
 ```{r colors}
@@ -29,8 +26,8 @@ color_vals <- c( # actual colors used in the plot
                                 "pursuit" = "darkgreen", 
 #                                "fixation" = "black",
                                 "target" = "blue", 
-                                "visible" = "lightblue",
-                                "hidden" = "grey",
+                                "visible" = "deepskyblue",
+                                "hidden" = "darksalmon",
                                 # placeholder values for legend titles
                                 " " = "white")
 
@@ -38,15 +35,9 @@ color_breaks <- c("saccade", "pursuit", " ", "target","visible","hidden")
 
 ```
 
-## Saccade frequency
 
-### Visible vs. occluded target: trial-level frequencies
-
-Trial-level frequency (saccades/second) is calculated as the sum of saccades divided by the duration of (hidden/visible) time segment.
-
-```{r message=F}
+```{r wrangling, message=F}
   
-# trial-level numbers
 df_dur <- df_trials %>%
   filter(signtype == "cue", trial_type == "occluded_trial", 
          target_class %in% c("visible", "hidden")) %>%
@@ -60,12 +51,29 @@ df_dur <- df_trials %>%
                values_to = "duration") %>%
   filter(!is.infinite(duration))
 
-trial_saccades <- saccades %>%
+saccadetimes_full <- saccades %>%
   filter(signtype == "cue", trial_type == "occluded_trial") %>%
   group_by(participant, seg_index, target_class) %>%
-  filter(n_distinct(timept) == 2) %>% # pick saccades with both ends inside hidden/visible cue
+  filter(n_distinct(timept) == 2) %>% 
+  arrange(participant, seg_index, desc(timept)) %>%
+  group_by(participant, seg_index) %>%
+  mutate(dist = sqrt((gazeX_s - lag(gazeX_s))^2 + (gazeY_s - lag(gazeY_s))^2) %>% lead) %>%
+  filter(timept == "launch")  %>%
+  ungroup %>%
+  mutate(cond_ts = if_else(target_class == "hidden", occl_ts, trial_ts)) %>%
+  select(participant, seg_index, cond_ts, dist, trial_number, target_class) 
+
+full_ts_saccades <- df_trials %>%
+  filter(signtype == "cue", trial_type == "occluded_trial") %>%
+  mutate(cond_ts = if_else(target_class == "hidden", occl_ts, trial_ts)) %>%
+  select(participant, trial_number, target_class, cond_ts) %>%
+  full_join(saccadetimes_full, by = c("participant", "trial_number", "target_class", "cond_ts"))
+  
+
+trial_saccades <- saccadetimes_full %>%
   group_by(participant, trial_number, target_class) %>%
-  summarise(saccades = n_distinct(seg_index)) %>%
+  summarise(saccades = n_distinct(seg_index),
+            median_dist = median(dist)) %>%
   ungroup %>%
   left_join(df_dur, by = c("participant", "trial_number", "target_class")) %>%
   mutate(freq = saccades/duration)
@@ -73,12 +81,20 @@ trial_saccades <- saccades %>%
 
 ```
 
+## Saccade frequency
+
+### Visible vs. occluded target: trial-level frequencies
+
+Trial-level frequency (saccades/second) is calculated as the sum of saccades divided by the duration of (visible/hidden) time segment.  
+
+Some outliers: e.g. participant 8, trial 450 during occlusion (frequency 14.3; 1 saccade during a period of 0.07 s).  
+
 ```{r fig.width=10, fig.height=10}
-trial_saccades %>%
+trial_saccades %>% 
   gather(var, value, saccades:freq) %>%
   mutate(var = factor(var, levels = c("freq", "saccades", "duration"),
-                      labels = c("Frequency (saccades/s)", "Saccade count", "Duration of hidden/visible cue (s)"))) %>%
-  ggplot(aes(participant, value, fill = target_class %>% fct_rev)) + geom_boxplot() +
+                      labels = c("Frequency (saccades/s)", "Saccade count", "Duration of visible/hidden cue (s)"))) %>%
+  ggplot(aes(participant, value, fill = target_class %>% fct_rev)) + geom_boxplot(alpha = .7) +
   facet_wrap(~var, scales = "free", ncol = 1, strip.position = "left") +
   theme_bw() +
   scale_fill_manual(values = color_vals) +
@@ -89,181 +105,124 @@ trial_saccades %>%
 
 ```
 
-##### (Multilevel) regression model  
-*Visible object* as reference category: coefficients 2.01 (intercept) for visible and +0.79 (slope) for hidden.  
-
-Variance across participants is .49 for intercept and .42 for slope.  
-
-```{r}
-
-trial_saccades <- trial_saccades %>%
-  mutate(target_class = factor(target_class, levels = c("visible", "hidden")))
-
-# LMM, random slope + intercept for participant
-fit <- lmer(freq ~ target_class + (target_class|participant), data = trial_saccades)
-
-summary(fit)
-
-
-```
-<br>
-<br>
-
-Plot random effects
-
-```{r}
-rr <- ranef(fit,condVar=TRUE)
-aa <- broom.mixed::augment(rr)
-
-
-aa %>% 
-  mutate(variable = recode(variable, `(Intercept)` = "Intercept (visible)", target_classhidden = "Slope (hidden vs. visible)"))  %>%
-  ggplot(aes(estimate, level, xmin=lb, xmax=ub)) +
-  geom_errorbarh(height = 0)+
-  geom_vline(xintercept = 0, lty = 2)+
-  geom_point() + facet_wrap(~variable, scales = "free_x") +
-  labs(y = "participant") +
-  theme_bw()
-
-```
-<br>
-<br>
-
-##### Participant 7 trials with high saccade frequency
-
-```{r fig.width=10, fig.height=7, message=F}
-
-rects <- df_trials %>% 
-  filter(participant == "7", between(trial_number, 369, 373), 
-         target_class %in% c("visible", "hidden")) %>%
-  group_by(trial_number, target_class) %>%
-  summarise(xmin = min(ts), xmax = max(ts)) %>%
-  left_join(trial_saccades %>% filter(participant == "7"))
-
-p7_launch <- saccades %>% 
-  filter(participant == "7", between(trial_number, 369, 373), timept == "launch") %>%
-  gather(var, svalue, gazeX_s, gazeY_s)  %>%
-  mutate(var = recode(var, gazeX_s = "X", gazeY_s = "Y")) %>%
-  rename(slaunch = ts)
-
-p7 <- df_trials %>% 
-  filter(participant == "7", between(trial_number, 369, 373)) %>% 
-  gather(var, value, gazeX_s, gazeY_s) %>%
-  mutate(var = recode(var, gazeX_s = "X", gazeY_s = "Y")) %>%
-  ggplot(aes(ts, value, group = trial_number)) + 
-  geom_path(alpha = .6) +
-  geom_rect(data=rects, aes(xmin=xmin, ymin=-20, xmax=xmax, ymax=20,
-        fill=target_class), alpha = .2, inherit.aes = F) +
-  geom_point(data = p7_launch, aes(slaunch, svalue), color = "red", size = 1) +
-  geom_text(data = rects  %>% mutate(var = "X"), 
-            aes(xmin + .5, 17, label = round(freq,1)), inherit.aes = F, color = "blue") +
-  facet_wrap(~var, ncol = 1, strip.position = "left") +
-  scale_y_continuous(limits = c(-20, 20)) +
-  scale_x_continuous(limits = c(min(rects$xmin), max(rects$xmax))) +
-  theme_bw() +   
-  scale_color_manual(breaks=color_breaks,
-                       values = color_vals,
-                     drop = F) +
-  labs(y = "", x = "time (s)") +
-  theme(legend.position = "none", 
-        strip.placement = "outside", 
-          strip.background = element_blank())
-
-
-pp7 <- plotly::ggplotly(p7, tooltip = "slaunch", layerData = 1)
-
-pp7
-
-#htmlwidgets::saveWidget(pp7, "participant7_saccadeFreq.html")
-```
-
 
 ### Saccade frequency over time
 
 ```{r fig.width=10, fig.height=7}
 
 trial_saccades %>%
-  filter(target_class == "hidden") %>%
-  ggplot(aes(duration, freq)) +
+  ggplot(aes(duration, freq, color = target_class)) +
   geom_point(alpha = .4) +
-  scale_y_continuous(limits = c(0,6)) +
   facet_wrap(~participant, labeller = purrr::partial(label_both, sep = " "))  +
   theme_bw() +
-  labs(title = "Trial-level saccade frequencies and occlusion duration", y = "Frequency (saccades/s)",
-       x = "Occlusion duration (s)")
+  labs(title = "Trial-level saccade frequencies over time", y = "Frequency (saccades/s)",
+       x = "Duration of visible/hidden cue (s)", color = "") +
+  scale_color_manual(values = color_vals) +
+  guides(color = guide_legend(override.aes = list(alpha = 1, size = 3)))
 
 ```
-<br>
-<br>
+
 
 ### Within trials
 
-```{r}
-
-saccadetimes <- saccades %>%
-  filter(signtype == "cue", trial_type == "occluded_trial", target_class == "hidden") %>%
-  arrange(participant, seg_index, desc(timept)) %>%
-  group_by(participant, seg_index) %>%
-  mutate(dist = sqrt((gazeX_s - lag(gazeX_s))^2 + (gazeY_s - lag(gazeY_s))^2) %>% lead) %>%
-  filter(timept == "launch")  %>%
-  select(participant, seg_index, occl_ts, dist, trial_number) %>%
-  left_join(trial_saccades %>% filter(target_class == "hidden"), by = c("participant", "trial_number")) %>%
-  group_by(participant, trial_number) %>%
-  filter(saccades == n_distinct(seg_index)) %>% # remove saccades that are not fully in hidden
-  ungroup %>%
-  select(participant, seg_index, occl_ts, dist, trial_number) 
-  
-occl_ts_saccades <- df_trials %>%
-  filter(signtype == "cue", trial_type == "occluded_trial", target_class == "hidden") %>%
-  select(participant, trial_number, occl_ts) %>%
-  full_join(saccadetimes, by = c("participant", "trial_number", "occl_ts"))
-
-```
 
 ```{r fig.width=10, fig.height=7}
-saccadetimes %>% 
-  arrange(participant, trial_number, occl_ts) %>%
-  group_by(participant, trial_number) %>%
+
+saccadetimes_full %>% 
+  arrange(participant, target_class, trial_number, cond_ts) %>%
+  group_by(participant, target_class, trial_number) %>%
   mutate(cumulative_saccades = cumsum(!is.na(seg_index))) %>%
-  group_by(participant) %>%
-  mutate(slope = round(lm(cumulative_saccades ~ occl_ts)$coefficients[2], 2)) %>%
   ungroup %>%
-  mutate(participant2 = participant) %>%
-  mutate(participant = paste0(participant, " (slope ", slope, ")") %>% factor) %>%
-  mutate(participant = fct_reorder(participant, as.numeric(participant2))) %>%
-  ggplot(aes(occl_ts, cumulative_saccades, 
-             group = interaction(participant, trial_number), color = participant)) + 
-  geom_line(alpha = .25) +
+  ggplot(aes(cond_ts, cumulative_saccades,
+             group = interaction(participant, target_class, trial_number), color = target_class)) +
+  geom_line(alpha = .2) +
   facet_wrap(~participant, labeller = purrr::partial(label_both, sep = " ")) +
-  labs(title = "Saccade count over time", 
-       y = "Cumulative saccade count", x = "Occlusion duration (s)") +
-  geom_smooth(aes(occl_ts, cumulative_saccades, color = participant), inherit.aes = F,  
+  labs(title = "Saccade count over time",
+       y = "Cumulative saccade count", x = "Duration of visible/hidden cue (s)", color = "") +
+  geom_smooth(aes(cond_ts, cumulative_saccades, color = target_class), inherit.aes = F,
               method = "lm", se = F, linetype = "dashed") +
-  theme_bw() +
-  theme(legend.position = "none")
+  theme_bw()  +
+  scale_color_manual(values = color_vals)
+
+
+
+csaccades <- saccadetimes_full %>%
+  arrange(participant, target_class, trial_number, cond_ts) %>%
+  group_by(participant, target_class, trial_number) %>%
+  mutate(cumulative_saccades = cumsum(!is.na(seg_index))) %>%
+  ungroup
+
+zero_saccades <- csaccades %>%
+  distinct(participant, target_class, trial_number) %>%
+  anti_join(csaccades %>% filter(cond_ts == 0), by = c("participant", "target_class", "trial_number")) %>%
+  mutate(cond_ts = 0,
+         cumulative_saccades = 0)
+
+csaccades %>%
+  full_join(zero_saccades, by = c("participant", "cond_ts", "trial_number", "target_class", "cumulative_saccades")) %>%
+  arrange(participant, target_class, cond_ts) %>%
+  # group_by(participant) %>%
+  # mutate(slope = round(lm(cumulative_saccades ~ cond_ts)$coefficients[2], 2)) %>%
+  # ungroup %>%
+  # mutate(participant2 = participant) %>%
+  # mutate(participant = paste0(participant, " (slope ", slope, ")") %>% factor) %>%
+  # mutate(participant = fct_reorder(participant, as.numeric(participant2))) %>%
+  ggplot(aes(cond_ts, cumulative_saccades,
+             group = interaction(participant, target_class, trial_number), color = target_class)) +
+  geom_line(alpha = .2) +
+  facet_wrap(~participant, labeller = purrr::partial(label_both, sep = " ")) +
+  labs(title = "Saccade count over time (zero saccades included)",
+       y = "Cumulative saccade count", x = "Duration of visible/hidden cue (s)", color = "") +
+  geom_smooth(aes(cond_ts, cumulative_saccades, color = target_class), inherit.aes = F,
+              method = "lm", se = F, linetype = "dashed") +
+  theme_bw()  +
+  scale_color_manual(values = color_vals)
+
 
 ```
 
 In the plot below, cumulative frequency has been calculated from the cumulative sum of *saccades per trial* (saccade count scaled by n of trials at each timepoint).  
 
 ```{r fig.width=10.5, fig.height=7, message=F}
-occl_ts_saccades %>%
-  mutate(occl_bin = cut_width(occl_ts, 1/50), boundary = 0) %>%
-  group_by(participant, occl_bin) %>%
+# occl_ts_saccades %>%
+#   mutate(occl_bin = cut_width(occl_ts, 1/50), boundary = 0) %>%
+#   group_by(participant, occl_bin) %>%
+#   summarise(saccades = sum(!is.na(seg_index)),
+#             trials = n_distinct(trial_number),
+#             occl_ts_bound = max(occl_ts)) %>%
+#   arrange(participant, occl_ts_bound) %>%
+#   mutate(saccades_per_trial = saccades / trials, # scale count by n of trials
+#          cumulative_saccades = cumsum(saccades_per_trial),
+#          cs_freq = cumulative_saccades / occl_ts_bound) %>% 
+#   ggplot(aes(occl_ts_bound, cs_freq, color = participant)) + #geom_path(size=1, alpha = .7) +
+#   geom_point(aes(size=trials)) +
+#   facet_wrap(~participant, labeller = purrr::partial(label_both, sep = " ")) +
+#   labs(title = "Saccade frequency over time",
+#        y = "Cumulative frequency (saccades/s)", x = "Occlusion duration (s)") +
+#   theme_bw() + scale_size("Number of trials", range = c(0.01, 3), breaks = c(10,35,60)) + guides(color = F) +
+#   theme(legend.position = "bottom")
+
+# this df has "all timestamps" (also the ones without saccades)
+full_ts_saccades %>%
+  mutate(ts_bin = cut_width(cond_ts, 1/60), boundary = 0) %>%
+  group_by(participant, target_class, ts_bin) %>%
   summarise(saccades = sum(!is.na(seg_index)),
             trials = n_distinct(trial_number),
-            occl_ts_bound = max(occl_ts)) %>%
-  arrange(participant, occl_ts_bound) %>%
+            ts_bound = max(cond_ts)) %>%
+  arrange(participant, target_class, ts_bound) %>%
   mutate(saccades_per_trial = saccades / trials, # scale count by n of trials
          cumulative_saccades = cumsum(saccades_per_trial),
-         cs_freq = cumulative_saccades / occl_ts_bound) %>% 
-  ggplot(aes(occl_ts_bound, cs_freq, color = participant)) + #geom_path(size=1, alpha = .7) +
-  geom_point(aes(size=trials)) +
+         cs_freq = cumulative_saccades / ts_bound) %>% 
+  ggplot(aes(ts_bound, cs_freq, size = trials, color = target_class)) + #geom_path(size=1, alpha = .7) +
+  geom_point(alpha = .3) +
   facet_wrap(~participant, labeller = purrr::partial(label_both, sep = " ")) +
   labs(title = "Saccade frequency over time",
-       y = "Cumulative frequency (saccades/s)", x = "Occlusion duration (s)") +
-  theme_bw() + scale_size("Number of trials", range = c(0.01, 3), breaks = c(10,35,60)) + guides(color = F) +
-  theme(legend.position = "bottom")
+       y = "Cumulative frequency (saccades/s)", x = "Duration of visible/hidden cue (s)", color = "") +
+  theme_bw() + scale_size("Number of trials", range = c(0.01, 3), breaks = c(10,35,60)) + 
+  theme(legend.position = "bottom") +
+  scale_color_manual(values = color_vals) +
+  guides(color = guide_legend(override.aes = list(alpha = 1, size = 3)))
+
 
 ```
 
@@ -271,17 +230,9 @@ occl_ts_saccades %>%
 ## Saccade amplitude
 
 ```{r fig.width=10, fig.height=7}
-saccadetimes_full <- saccades %>%
-  filter(signtype == "cue", trial_type == "occluded_trial") %>%
-  arrange(participant, seg_index, desc(timept)) %>%
-  group_by(participant, seg_index) %>%
-  mutate(dist = sqrt((gazeX_s - lag(gazeX_s))^2 + (gazeY_s - lag(gazeY_s))^2) %>% lead) %>%
-  filter(timept == "launch")  %>%
-  ungroup %>%
-  select(participant, seg_index, occl_ts, dist, trial_number, target_class)
 
 saccadetimes_full %>%
-  ggplot(aes(participant, dist, fill = target_class %>% fct_rev)) + geom_boxplot() +
+  ggplot(aes(participant, dist, fill = target_class)) + geom_boxplot() +
   theme_bw() +
   scale_fill_manual(values = color_vals) +
   scale_y_continuous(limits = c(0, 20)) +
@@ -295,14 +246,40 @@ saccadetimes_full %>%
 
 
 ```{r fig.width=10, fig.height=7}
-saccadetimes %>% 
-  ggplot(aes(occl_ts, dist, 
-             group = interaction(participant, trial_number), color = participant)) + 
-  geom_point(alpha = .25) +
+saccadetimes_full %>% 
+  ggplot(aes(cond_ts, dist, 
+             group = interaction(participant, trial_number), color = target_class)) + 
+  geom_point(alpha = .2) +
   facet_wrap(~participant, labeller = purrr::partial(label_both, sep = " ")) +
   labs(title = "Saccade amplitude over time", 
-       y = "Amplitude (degrees)", x = "Occlusion duration (s)") +
+       y = "Amplitude (degrees)", x = "Duration of visible/hidden cue (s)", color = "") +
+  theme_bw()  +
+  scale_color_manual(values = color_vals) +
+  guides(color = guide_legend(override.aes = list(alpha = 1, size = 3)))
+
+```
+
+### Scatter plot: frequency vs. amplitude
+
+Trial-level saccade frequency vs. median saccade amplitude, all participants pooled. Points with black border (connected by thin line for each participant) are participant medians.  
+
+```{r}
+
+trial_saccades %>%
+  group_by(participant, target_class) %>%
+  mutate(freq_part = median(freq),
+         dist_part = median(median_dist)) %>%
+  ggplot(aes(freq, median_dist, color = target_class)) + 
+  geom_point(alpha = .2)  +
+  geom_point(aes(freq_part, dist_part, fill = target_class), color = "black", size = 2, shape = 21, show.legend = F) +
+  geom_line(aes(freq_part, dist_part, group = participant), inherit.aes = F, alpha = .2) +
   theme_bw() +
-  theme(legend.position = "none")
+  scale_color_manual(values = color_vals) +
+  scale_fill_manual(values = color_vals) +
+  guides(color = guide_legend(override.aes = list(alpha = 1, size = 3))) +
+  scale_y_continuous(limits = c(0,20)) +
+  scale_x_continuous(limits = c(0,7)) +
+  labs(x = "Frequency (saccades/s)", y = "Median saccade amplitude", color = "")
+
 ```
 

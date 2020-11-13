@@ -67,13 +67,13 @@ df <- df %>%
 
 
 Create occluded_trial and success_trial variables, mark 1st occluded block as practice
-Note some erroneous trials like p8 trial 317 (due to missing data), hence the filter
+
 ```{r}
 
 df <- df %>%
   mutate(trial_gap = is.na(trial_number)) %>%
   group_by(participant, trial_number) %>%
-  mutate(trial_type = ifelse((mean(is_visible) == 1) & (trial_number < 300), 
+  mutate(trial_type = ifelse(mean(is_visible) == 1, 
                              "visible_trial", "occluded_trial"),
          success_trial = max(is_success)) %>%
   group_by(participant) %>%
@@ -86,9 +86,17 @@ df <- df %>%
 
 # check number of trials per block
 df %>%
+  filter(is_trial) %>%
   group_by(participant, block, trial_type) %>%
   summarise(trials = n_distinct(trial_number, na.rm=T))
 
+# check trial types per block (1 = visible, 2 = occluded practice, 3 & 4 = occluded)
+df %>%
+  filter(is_trial) %>%
+  distinct(block, trial_type)
+
+
+# there's one weird visible trial in block 2 for p8 (212)
 
 ```
 #### Separate trial data  
@@ -144,7 +152,7 @@ saccades <- segments %>%
   group_by(participant, trial_number, is_visible) %>%
   mutate(first_saccade = if_else((!is_visible) & (seg_index == min(seg_index)), T, F)) %>%
   arrange(participant, seg_index, desc(timept)) %>%
-  filter(!first_saccade) %>% # remove the first saccade of each occlusion: the one with the smallest index
+#  filter(!first_saccade) %>% # remove the first saccade of each occlusion: the one with the smallest index
   ungroup %>%
   arrange(participant, trial_number, trial_ts) %>%
   mutate(is_visible_cue = if_else(is_visible, "visible", "hidden"))
@@ -209,8 +217,8 @@ color_vals <- c( # actual colors used in the plot
                                 "pursuit" = "darkgreen", 
 #                                "fixation" = "black",
                                 "target" = "blue", 
-                                "visible" = "lightblue",
-                                "hidden" = "grey",
+                                "visible" = "deepskyblue",
+                                "hidden" = "darksalmon",
                                 # placeholder values for legend titles
                                 " " = "white")
 
@@ -225,12 +233,11 @@ Random sampling of time segments
 
 n samples for visible / occluded timepoints --> windows of width 20s around them
 
-TODO: Participant 8 bad data!
 
 ```{r}
 set.seed(1)
 times <- df %>%
-  filter((participant != 8) | (ts < 99000), trial_type == "occluded_trial", is_trial) %>%
+  filter(trial_type == "occluded_trial", is_trial) %>%
   group_by(participant, is_visible) %>%
   slice_sample(n = 3) %>%
   ungroup %>%
@@ -458,6 +465,7 @@ dev.off()
 
 # Gaze distribution relative to target
 
+
 (rotated around circle centerpoint and vertical aligned with radius to target) = ???
 
 For segmented data; saccade launch & landing points
@@ -473,6 +481,7 @@ Make axis limits identical
 ```{r }
 
 saccades %>%
+  filter(!first_saccade) %>% 
 #  filter(abs(x_rel) < 20, abs(y_rel) < 20) %>% # TODO: remove this filter after fixing conf
   filter(is_cue == 1, trial_type == "occluded_trial") %>%
   ggplot(aes(x_rel, y_rel, colour = timept)) + geom_point(alpha = .1) +
@@ -495,6 +504,7 @@ saccades %>%
 
 ```{r fig.width=10}
 saccades %>% 
+filter(!first_saccade) %>% 
   filter(is_cue == 1, !is.na(timept), trial_type == "occluded_trial") %>%
   ggplot(aes(phase_diff, fill = timept)) + 
   geom_histogram(binwidth=.05, position = "identity", alpha = .4) +
@@ -508,6 +518,7 @@ saccades %>%
 
 ```{r fig.width=10}
 saccades %>% 
+filter(!first_saccade) %>% 
   filter(is_cue == 1, !is.na(timept), trial_type == "occluded_trial") %>%
   ggplot(aes(radius_diff, fill = timept)) + 
   geom_histogram(binwidth=1, position = "identity", alpha = .4) +
@@ -524,6 +535,7 @@ saccades %>%
 
 ```{r}
 saccades %>% 
+filter(!first_saccade) %>% 
   filter(is_cue == 1, !is.na(timept), trial_type == "occluded_trial") %>%
   ggplot(aes(phase_diff, fill = timept)) + 
   geom_histogram(binwidth=.08, position = "identity", alpha = .4) +
@@ -538,6 +550,7 @@ saccades %>%
 
 ```{r message=F}
 saccades %>% 
+filter(!first_saccade) %>% 
   filter(is_cue == 1, !is.na(timept), trial_type == "occluded_trial") %>%
   ggplot(aes(radius_diff, fill = timept)) + 
   geom_histogram(binwidth=1, position = "identity", alpha = .4) +
@@ -729,8 +742,6 @@ segment_durations_df %>%
 
 # Headtracking
 
-TODO: To degrees + in the same subplot?
-Longer period
 
 ```{r}
 # headtracking coords to degrees to match gaze
@@ -768,10 +779,11 @@ plot_head <- function(sbj, ts_center) {
 #    mutate(var = str_remove(var, "head_deg_")) %>%
     ggplot() +
    geom_rect(data=rects, aes(xmin=xmin, ymin=ymin, xmax=xmax, ymax=ymax,
-        fill=target_class), alpha = .3) +
+        fill=target_class), alpha = .15) +
     geom_path(aes(ts, value, color = var), alpha = .8) +
 #    facet_grid(var~., switch = "y", scales = "free_y") +
     labs(x = "time (s)", title = title, y = "", color = "", fill = "") +
+    scale_x_continuous(limits = c(min(rects$xmin), max(rects$xmax))) +
   scale_y_continuous(limits = c(-20, 20), name = "X (degrees)",
     sec.axis = sec_axis( trans=~./degs_per_pix + 1920/2, name="screen coordinates")) +
     theme_bw()  +
@@ -793,10 +805,11 @@ plot_head <- function(sbj, ts_center) {
 #    mutate(var = str_remove(var, "head_deg_")) %>%
     ggplot() +
    geom_rect(data=rects, aes(xmin=xmin, ymin=ymin, xmax=xmax, ymax=ymax,
-        fill=target_class), alpha = .3) +
+        fill=target_class), alpha = .15) +
     geom_path(aes(ts, value, color = var), alpha = .8) +
  #   facet_grid(var~., switch = "y", scales = "free_y") +
     labs(x = "time (s)", y = "", color = "", fill = "") +
+      scale_x_continuous(limits = c(min(rects$xmin), max(rects$xmax))) +
   scale_y_continuous(limits = c(-20, 20), name = "Y (degrees)",
     sec.axis = sec_axis( trans=~./degs_per_pix + 1080/2, name="screen coordinates")) +
     theme_bw()   +
@@ -822,7 +835,7 @@ headtr_plots_times <- mapply(plot_head, times$participant, times$ts, SIMPLIFY = 
 
 ```{r}
 
-pdf("headtracking.pdf", width = 12, height = 7)
+pdf("headtracking_new.pdf", width = 12, height = 7)
 invisible(lapply(headtr_plots_times, print))
 dev.off()
 
@@ -831,6 +844,7 @@ dev.off()
 ```{r}
 # saveRDS(df_trials, 'df_trials.RDS')
 # saveRDS(saccades, 'saccades.RDS')
+
 ```
 
 
@@ -880,63 +894,46 @@ trial_saccades %>%
             sd_freq = sd(freq))
 
 ```
-Model with trial-level frequencies
+##### (Multilevel) regression model  
+*Visible object* as reference category: coefficients 2.01 (intercept) for visible and +0.79 (slope) for hidden.  
+
+Variance across participants is .49 for intercept and .42 for slope.  
 
 ```{r}
-library(lme4)
-library(lmerTest)
 
 trial_saccades <- trial_saccades %>%
   mutate(target_class = factor(target_class, levels = c("visible", "hidden")))
 
+# LMM, random slope + intercept for participant
 fit <- lmer(freq ~ target_class + (target_class|participant), data = trial_saccades)
 
 summary(fit)
 
-broom.mixed::augment(fit) %>%
-  gather(var, value, freq, .fitted) %>%
-  ggplot(aes(var, value, fill = target_class)) + 
-  geom_boxplot(alpha=.3) + 
-  facet_wrap(~participant) +
-  scale_y_continuous(limits = c(0,10)) +
-  theme_bw() +
-  labs(title = "Observed values vs. predictions based on the fixed effect of target class")
-
-coefs <- broom.mixed::tidy(fixef(fit)) %>% spread(names, x)
-
-
-trial_saccades %>%
-  mutate(predicted_freq = if_else(target_class == "visible", coefs$`(Intercept)`,
-                                  coefs$`(Intercept)` + coefs$target_classhidden)) %>%
-  ggplot(aes(factor(participant), freq, fill = target_class, color = target_class)) + 
-  geom_boxplot(alpha = .4) +
-  geom_line(aes(participant, predicted_freq), inherit.aes = F) +
-  facet_wrap(~target_class) +
-  theme_bw() 
-
-rr <- ranef(fit,condVar=TRUE)
-aa <- broom.mixed::augment(rr)
-g0 <- ggplot(aa,aes(estimate,qq,xmin=lb,xmax=ub))+
-geom_errorbarh(height=0)+
-geom_point()+facet_wrap(~variable,scale="free_x")
-## regular caterpillar plot:
-g1 <- ggplot(aa,aes(estimate,level,xmin=lb,xmax=ub))+
-geom_errorbarh(height=0)+
-geom_vline(xintercept=0,lty=2)+
-geom_point()+facet_wrap(~variable,scale="free_x")
-## emphasize extreme values
-aa2 <- group_by(aa,grp,level)
-aa3 <- mutate(aa2, keep=any(estimate/std.error>2))
-## Update caterpillar plot with extreme levels highlighted
-## (highlight all groups with *either* extreme intercept *or*
-## extreme slope)
-ggplot(aa3, aes(estimate,level,xmin=lb,xmax=ub,colour=factor(keep)))+
-geom_errorbarh(height=0)+
-geom_vline(xintercept=0,lty=2)+
-geom_point()+facet_wrap(~variable,scale="free_x")+
-scale_colour_manual(values=c("black","red"), guide=FALSE)
 
 ```
+<br>
+<br>
+
+Plot random effects
+
+```{r}
+rr <- ranef(fit,condVar=TRUE)
+aa <- broom.mixed::augment(rr)
+
+
+aa %>% 
+  mutate(variable = recode(variable, `(Intercept)` = "Intercept (visible)", target_classhidden = "Slope (hidden vs. visible)"))  %>%
+  ggplot(aes(estimate, level, xmin=lb, xmax=ub)) +
+  geom_errorbarh(height = 0)+
+  geom_vline(xintercept = 0, lty = 2)+
+  geom_point() + facet_wrap(~variable, scales = "free_x") +
+  labs(y = "participant") +
+  theme_bw()
+
+```
+<br>
+<br>
+
 
 
 ```{r fig.width=10}
@@ -970,43 +967,52 @@ trial_saccades %>%
 ```
 
 
-Participant 7 trials with high saccade frequency
-```{r}
+##### Participant 7 trials with high saccade frequency
 
-rects <- df %>% 
-  filter(participant == "7", between(trial_number, 369, 371), 
+```{r fig.width=10, fig.height=7, message=F}
+
+rects <- df_trials %>% 
+  filter(participant == "7", between(trial_number, 369, 373), 
          target_class %in% c("visible", "hidden")) %>%
   group_by(trial_number, target_class) %>%
   summarise(xmin = min(ts), xmax = max(ts)) %>%
   left_join(trial_saccades %>% filter(participant == "7"))
 
 p7_launch <- saccades %>% 
-  filter(participant == "7", between(trial_number, 369, 371), timept == "launch") %>%
+  filter(participant == "7", between(trial_number, 369, 373), timept == "launch") %>%
   gather(var, svalue, gazeX_s, gazeY_s)  %>%
+  mutate(var = recode(var, gazeX_s = "X", gazeY_s = "Y")) %>%
   rename(slaunch = ts)
 
-p7 <- df %>% 
-  filter(participant == "7", between(trial_number, 369, 371)) %>% 
+p7 <- df_trials %>% 
+  filter(participant == "7", between(trial_number, 369, 373)) %>% 
   gather(var, value, gazeX_s, gazeY_s) %>%
-  ggplot(aes(ts, value, group = 1)) + 
+  mutate(var = recode(var, gazeX_s = "X", gazeY_s = "Y")) %>%
+  ggplot(aes(ts, value, group = trial_number)) + 
   geom_path(alpha = .6) +
   geom_rect(data=rects, aes(xmin=xmin, ymin=-20, xmax=xmax, ymax=20,
         fill=target_class), alpha = .2, inherit.aes = F) +
   geom_point(data = p7_launch, aes(slaunch, svalue), color = "red", size = 1) +
-  geom_text(data = rects, aes(xmin + .5, -17, label = round(freq,1)), inherit.aes = F) +
-  facet_wrap(~var, ncol = 1) +
+  geom_text(data = rects  %>% mutate(var = "X"), 
+            aes(xmin + .5, 17, label = round(freq,1)), inherit.aes = F, color = "blue") +
+  facet_wrap(~var, ncol = 1, strip.position = "left") +
   scale_y_continuous(limits = c(-20, 20)) +
   scale_x_continuous(limits = c(min(rects$xmin), max(rects$xmax))) +
   theme_bw() +   
   scale_color_manual(breaks=color_breaks,
                        values = color_vals,
                      drop = F) +
-  theme(legend.position = "none")
+  labs(y = "", x = "time (s)") +
+  theme(legend.position = "none", 
+        strip.placement = "outside", 
+          strip.background = element_blank())
 
 
 pp7 <- plotly::ggplotly(p7, tooltip = "slaunch", layerData = 1)
 
-htmlwidgets::saveWidget(pp7, "participant7_saccadeFreq.html")
+pp7
+
+htmlwidgets::saveWidget(pp7, "participant7_saccadeFreq_new.html")
 ```
 
 ### Saccade frequency over time in occluded trials

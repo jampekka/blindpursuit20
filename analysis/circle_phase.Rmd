@@ -104,7 +104,7 @@ df %>%
 **NOTE: trial_number now contains query, success, etc. The numbers are also different (used to start at 60 for circular trials). **
 
 ```{r}
-df_trials <- df %>%
+df_trials1 <- df %>%
   filter(is_trial) %>%
   group_by(participant, trial_number) %>%
   mutate(trial_ts = ts - min(ts)) %>%
@@ -113,6 +113,29 @@ df_trials <- df %>%
   ungroup %>%
   arrange(participant, trial_number, trial_ts)
 
+```
+
+
+Create "unwrapped phase variables" (per trial) to avoid jumps in phase values. These are used when phases are compared (phase difference, phase covered by saccades, etc.)
+
+```{r fig.width=12}
+
+# need to make 1st row of gaze phase to match the "units" of target phase; therefore the gathering/pivoting
+# (e.g. participant 1 trial 315: target phase 3.13, gaze phase -3.10)
+
+df_trials <- df_trials1 %>%
+  group_by(participant, trial_number) %>% 
+  gather(var, orig, target_phase_R, gaze_phase_R) %>%
+  arrange(participant, trial_number, ts) %>%
+  mutate(unwrap = signal::unwrap(orig)) %>%
+  pivot_wider(names_from = var,
+              values_from = c(orig, unwrap)) %>%
+  ungroup %>%
+  mutate(phase_diff_unwrap = unwrap_gaze_phase_R - unwrap_target_phase_R) %>%
+  arrange(participant, trial_number, ts) 
+
+
+  
 ```
 
 
@@ -168,7 +191,7 @@ saccades <- segments %>%
 ```{r}
 df_trials %>% 
   filter(participant == 1, trial_number == 174) %>%
-  ggplot(aes(target_x, target_y, color = target_phase_R)) + geom_path(size=3, lineend = "round") + 
+  ggplot(aes(target_x, target_y, color = orig_target_phase_R)) + geom_path(size=3, lineend = "round") + 
   scale_color_gradient2() +
   theme_bw() +
   coord_fixed() + labs(title = "Values of phase variable", color = "")
@@ -179,7 +202,7 @@ df_trials %>%
 target_phases <- df_trials %>%
   filter(is_target == 1) %>%
   group_by(participant, trial_number, success_trial) %>%
-  summarise(target_phase = mean(target_phase_R)) %>%
+  summarise(target_phase = mean(orig_target_phase_R)) %>%
   ungroup %>%
   mutate(target_phase_bin = cut_interval(target_phase, 8)) %>% 
   group_by(target_phase_bin) %>%
@@ -466,12 +489,9 @@ dev.off()
 # Gaze distribution relative to target
 
 
-(rotated around circle centerpoint and vertical aligned with radius to target) = ???
-
 For segmented data; saccade launch & landing points
 
 1st saccades after occlusion removed
-
 
 
 ### Participant-wise
@@ -503,17 +523,19 @@ saccades %>%
 
 
 ```{r fig.width=10}
+
 saccades %>% 
 filter(!first_saccade) %>% 
   filter(is_cue == 1, !is.na(timept), trial_type == "occluded_trial") %>%
-  ggplot(aes(phase_diff, fill = timept)) + 
+  ggplot(aes(phase_diff_unwrap, fill = timept)) + 
   geom_histogram(binwidth=.05, position = "identity", alpha = .4) +
-  scale_x_continuous(limits = c(-1.5,1.5)) +
+  scale_x_continuous(limits = c(-2,2)) +
   geom_vline(aes(xintercept = 0), alpha = .5) +
   facet_wrap(participant~is_visible_cue, scales = "free_y", ncol=6)  +
   labs(title = "Phase difference between saccades and hidden/visible object",
        subtitle = "Participant-wise distributions, occluded trials", fill = "") +
   theme_bw() 
+
 ```
 
 ```{r fig.width=10}
@@ -534,10 +556,11 @@ filter(!first_saccade) %>%
 ### Average
 
 ```{r}
+
 saccades %>% 
 filter(!first_saccade) %>% 
   filter(is_cue == 1, !is.na(timept), trial_type == "occluded_trial") %>%
-  ggplot(aes(phase_diff, fill = timept)) + 
+  ggplot(aes(phase_diff_unwrap, fill = timept)) + 
   geom_histogram(binwidth=.08, position = "identity", alpha = .4) +
   scale_x_continuous(limits = c(-2,2)) +
   geom_vline(aes(xintercept = 0), alpha = .5) +
@@ -589,13 +612,14 @@ df_trials %>%
 ```
 
 ```{r fig.width = 10}
+
 df_trials %>%
   filter(is_target == 1, trial_type == "occluded_trial") %>%
   group_by(participant, trial_number, success_trial) %>%
   slice(1) %>%
   ungroup %>%
   mutate(success_trial = ifelse(success_trial == 1, "correct", "false")) %>%
-  ggplot(aes(phase_diff)) + 
+  ggplot(aes(phase_diff_unwrap)) + 
   geom_histogram(binwidth=.15, alpha = .6) +
   scale_x_continuous(limits = c(-2,2)) +
   geom_vline(aes(xintercept = 0), alpha = .5) +

@@ -24,7 +24,6 @@ saccades <- readRDS('saccades.RDS')
 color_vals <- c( # actual colors used in the plot
                                 "saccade" = "red", 
                                 "pursuit" = "darkgreen", 
-#                                "fixation" = "black",
                                 "target" = "blue", 
                                 "visible" = "deepskyblue",
                                 "hidden" = "darksalmon",
@@ -34,6 +33,7 @@ color_vals <- c( # actual colors used in the plot
 color_breaks <- c("saccade", "pursuit", " ", "target","visible","hidden")
 
 ```
+
 
 
 ```{r wrangling, message=F}
@@ -57,11 +57,12 @@ saccadetimes_full <- saccades %>%
   filter(n_distinct(timept) == 2) %>% 
   arrange(participant, seg_index, desc(timept)) %>%
   group_by(participant, seg_index) %>%
-  mutate(dist = sqrt((gazeX_s - lag(gazeX_s))^2 + (gazeY_s - lag(gazeY_s))^2) %>% lead) %>%
+  mutate(dist = sqrt((gazeX_s - lag(gazeX_s))^2 + (gazeY_s - lag(gazeY_s))^2) %>% lead,
+         phasedist = (unwrap_gaze_phase_R - lag(unwrap_gaze_phase_R)) %>% lead) %>%
   filter(timept == "launch")  %>%
   ungroup %>%
   mutate(cond_ts = if_else(target_class == "hidden", occl_ts, trial_ts)) %>%
-  select(participant, seg_index, cond_ts, dist, trial_number, target_class) 
+  select(participant, seg_index, cond_ts, dist, phasedist, trial_number, target_class) 
 
 full_ts_saccades <- df_trials %>%
   filter(signtype == "cue", trial_type == "occluded_trial") %>%
@@ -73,7 +74,8 @@ full_ts_saccades <- df_trials %>%
 trial_saccades <- saccadetimes_full %>%
   group_by(participant, trial_number, target_class) %>%
   summarise(saccades = n_distinct(seg_index),
-            median_dist = median(dist)) %>%
+            median_dist = median(dist),
+            median_phasedist = median(phasedist)) %>%
   ungroup %>%
   left_join(df_dur, by = c("participant", "trial_number", "target_class")) %>%
   mutate(freq = saccades/duration)
@@ -283,3 +285,29 @@ trial_saccades %>%
 
 ```
 
+### Phase angle covered by saccades
+
+```{r}
+
+saccadetimes_full %>%
+  summarise(negatives = mean(phasedist < 0)) # 5.7 % of saccades go in the "wrong" direction
+
+```
+
+```{r fig.width=10, fig.height=7}
+
+saccadetimes_full %>%
+  ggplot(aes(participant, phasedist, fill = target_class)) + geom_boxplot() +
+  theme_bw() +
+  scale_fill_manual(values = color_vals) +
+  labs(title = "Phase angle covered by saccades: participant-wise distributions", 
+       y = "Phase change (radians)", fill = "")  +
+    theme(strip.placement = "outside", 
+          strip.background = element_blank())
+
+
+
+```
+
+
+NEXT: OVER TIME

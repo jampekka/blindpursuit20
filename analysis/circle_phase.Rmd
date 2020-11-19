@@ -122,18 +122,44 @@ Create "unwrapped phase variables" (per trial) to avoid jumps in phase values. T
 
 # need to make 1st row of gaze phase to match the "units" of target phase; therefore the gathering/pivoting
 # (e.g. participant 1 trial 315: target phase 3.13, gaze phase -3.10)
+# but 1st row only, to avoid problems such as p10 trial 463
+
+# df_trials <- df_trials1 %>%
+#   group_by(participant, trial_number) %>% 
+#   gather(var, orig, target_phase_R, gaze_phase_R) %>%
+#   arrange(participant, trial_number, ts) %>%
+#   mutate(unwrap = signal::unwrap(orig)) %>%
+#   pivot_wider(names_from = var,
+#               values_from = c(orig, unwrap)) %>%
+#   ungroup %>%
+#   mutate(phase_diff_unwrap = unwrap_gaze_phase_R - unwrap_target_phase_R) %>%
+#   arrange(participant, trial_number, ts) 
+
+
+# gaze_1stphase = gaze phase with first (temporary) row from target phase. This is to match the "cycles"
+df_trials1 <- df_trials1 %>%
+  group_by(participant, trial_number) %>% 
+  arrange(participant, trial_number, ts) %>%
+  mutate(phase_row = row_number()) %>%
+  ungroup
+
 
 df_trials <- df_trials1 %>%
-  group_by(participant, trial_number) %>% 
-  gather(var, orig, target_phase_R, gaze_phase_R) %>%
+   group_by(participant, trial_number) %>% 
   arrange(participant, trial_number, ts) %>%
-  mutate(unwrap = signal::unwrap(orig)) %>%
-  pivot_wider(names_from = var,
-              values_from = c(orig, unwrap)) %>%
-  ungroup %>%
-  mutate(phase_diff_unwrap = unwrap_gaze_phase_R - unwrap_target_phase_R) %>%
-  arrange(participant, trial_number, ts) 
-
+   summarise(gaze_1stphase = first(target_phase_R)) %>%
+   mutate(phase_row = 0) %>% 
+   ungroup %>%
+   bind_rows(df_trials1, .) %>% 
+   arrange(participant, trial_number, phase_row) %>%
+#  select(phase_row, target_phase_R, gaze_phase_R, gaze_1stphase) %>% 
+   mutate(gaze_1stphase = if_else(!is.na(gaze_1stphase), gaze_1stphase, gaze_phase_R)) %>%
+   group_by(participant, trial_number) %>% 
+   mutate(unwrap_gaze_phase_R = signal::unwrap(gaze_1stphase)) %>% # unwrap gaze phase with 1st row
+   filter(phase_row != 0) %>%
+   mutate(unwrap_target_phase_R = signal::unwrap(target_phase_R),
+          old_unwrap_gaze_phase_R = signal::unwrap(gaze_phase_R)) %>% # unwrap target + "old" gaze phase (without 1st row), for comparison
+   ungroup
 
   
 ```

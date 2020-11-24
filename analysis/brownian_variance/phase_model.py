@@ -6,6 +6,7 @@ from estimate_brownian_model import estimate_brownian_model
 from sklearn.linear_model import LinearRegression
 import random
 import pandas as pd
+from matplotlib.backends.backend_pdf import PdfPages
 
 duration_max = 3
 
@@ -73,29 +74,32 @@ def find_variance(sh, timept):
     
     # add phase at disappearance
     sh['timept_mod'] = np.nan
-    sh['timept_mod'][(sh.trial_ts == 0) | (sh.timept == 'begin')] = 'begin'
+    sh['timept_mod'][(sh.timept == 'trial_start') | (sh.timept == 'launch')] = 'launch'
     
-
-    trials = sh[['trial_number','trial_ts','phase_error']][(sh.timept_mod == timept)]
+    
+    trials = sh[['trial_number','occl_ts','phase_error']][(sh.timept_mod == timept)]
+    
     tdata = []
     for i in trials.trial_number.unique():
-        td = trials[(trials.trial_number == i) & (trials.phase_error > -3)].iloc[:,1:]
+        td = trials[(trials.trial_number == i)].iloc[:,1:]
+        # remove duplicates (when actual saccade occurs at t0)
+        td = td[~td.duplicated(subset=['occl_ts'])]
         td = np.array(td)
         if len(td) > 1:
-            td = np.delete(td, 1, axis=0) # removes the second row = 1st saccade
-        tdata.append(td)
+#            td = np.delete(td, 1, axis=0) # removes the second row = 1st saccade
+            tdata.append(td)
         
     m0_true, v0_true, mt_true, vt_true, vn_true = estimate_brownian_model(tdata) # "true" here used to denote params from observed data
     
     
     # get fixation length
-    dts = trials.groupby('trial_number').trial_ts.diff()
+    dts = trials.groupby('trial_number').occl_ts.diff()
     fixation_dur = dts.mean()
     print(fixation_dur)
     print(len(tdata))
     
-    #simulate ONE sample of 100 trials (-> time series plot)
-    n = 100 
+    #simulate ONE sample of n trials (-> time series plot)
+    n = len(tdata)
     data = [np.array(list(simulate_saccade_phase_errors())) for i in range(n)]
     data = [d for d in data if len(d)]
 
@@ -110,6 +114,7 @@ def find_variance(sh, timept):
     for trial in tdata:
         ts, ps = trial.T
         ax1.plot(ts, ps, '.', alpha=0.3, color='black')
+        ax1.plot(ts, ps, alpha=0.03, color='black')
     ax1.set_title('observed')
     ax1.plot([0, 3], [0, m0_true + mt_true*3])
     ax1.text(2.7, .7, 
@@ -124,6 +129,7 @@ def find_variance(sh, timept):
     for trial in data:
         ts, ps = trial.T
         ax2.plot(ts, ps, '.', alpha=0.3, color='black')
+        ax2.plot(ts, ps, alpha=0.03, color='black')
     ax2.set_title('simulated')
     ax2.set_ylim(-3,3)
     ax2.plot([0, 3], [0, m0 + mt*3])
@@ -140,10 +146,11 @@ def find_variance(sh, timept):
     
     return f #np.array([m0_true, v0_true, mt_true, vt_true, vn_true])
 
-#rp_hid.to_pickle('data/hidden_saccades.pickle')
-#rp_hid = pd.read_pickle('data/hidden_saccades.pickle')
 
-figs = rp_hid.groupby('participant').apply(find_variance, 'begin')
+df = pd.read_csv("data/saccades_hidden.csv")
+df.rename(columns={"phase_diff_unwrap": "phase_error"}, inplace=True)
+
+figs = df.groupby('participant').apply(find_variance, 'launch')
 
 # %%
 
@@ -159,7 +166,7 @@ pp.close()
 def bootest(sh, timept):
     
     def sample_fit():
-    # take samples of 300 from observed data (n 80-90 - does it make any sense)
+    # take samples of n from observed data
         n = 100
         data = random.choices(tdata, k=n)
         data = [d for d in data if len(d)]
@@ -171,17 +178,20 @@ def bootest(sh, timept):
     
     # add phase at disappearance
     sh['timept_mod'] = np.nan
-    sh['timept_mod'][(sh.trial_ts == 0) | (sh.timept == 'begin')] = 'begin'
+    sh['timept_mod'][(sh.timept == 'trial_start') | (sh.timept == 'launch')] = 'launch'
     
-
-    trials = sh[['trial_number','trial_ts','phase_error']][(sh.timept_mod == timept)]
+    
+    trials = sh[['trial_number','occl_ts','phase_error']][(sh.timept_mod == timept)]
+    
     tdata = []
     for i in trials.trial_number.unique():
-        td = trials[(trials.trial_number == i) & (trials.phase_error > -3)].iloc[:,1:]
+        td = trials[(trials.trial_number == i)].iloc[:,1:]
+        # remove duplicates (when actual saccade occurs at t0)
+        td = td[~td.duplicated(subset=['occl_ts'])]
         td = np.array(td)
         if len(td) > 1:
-            td = np.delete(td, 1, axis=0) # removes the second row = 1st saccade
-        tdata.append(td)
+#            td = np.delete(td, 1, axis=0) # removes the second row = 1st saccade
+            tdata.append(td)
     
     # 100 times of samples of 100
     fits = [sample_fit() for i in range(100)]
@@ -211,10 +221,8 @@ def bootest(sh, timept):
     
     return fig #np.array([m0_true, v0_true, mt_true, vt_true, vn_true])
 
-#rp_hid.to_pickle('data/hidden_saccades.pickle')
-#rp_hid = pd.read_pickle('data/hidden_saccades.pickle')
 
-boot_figs = rp_hid.groupby('participant').apply(bootest, 'begin')
+boot_figs = df.groupby('participant').apply(bootest, 'launch')
 
 
 # %%
@@ -238,10 +246,10 @@ def boot_distr(sh, timept):
     
     # add phase at disappearance
     sh['timept_mod'] = np.nan
-    sh['timept_mod'][(sh.trial_ts == 0) | (sh.timept == 'begin')] = 'begin'
+    sh['timept_mod'][(sh.occl_ts == 0) | (sh.timept == 'begin')] = 'begin'
     
 
-    trials = sh[['trial_number','trial_ts','phase_error']][(sh.timept_mod == timept)]
+    trials = sh[['trial_number','occl_ts','phase_error']][(sh.timept_mod == timept)]
     tdata = []
     for i in trials.trial_number.unique():
         td = trials[(trials.trial_number == i) & (trials.phase_error > -3)].iloc[:,1:]

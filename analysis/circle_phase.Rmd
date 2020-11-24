@@ -39,7 +39,7 @@ df <- df %>%
 
 
 
-### Tidy main data
+# Tidy main data
 
 
 ```{r}
@@ -159,7 +159,9 @@ df_trials <- df_trials1 %>%
    filter(phase_row != 0) %>%
    mutate(unwrap_target_phase_R = signal::unwrap(target_phase_R),
           old_unwrap_gaze_phase_R = signal::unwrap(gaze_phase_R)) %>% # unwrap target + "old" gaze phase (without 1st row), for comparison
-   ungroup
+   ungroup %>%
+   mutate(phase_diff_unwrap = unwrap_gaze_phase_R - unwrap_target_phase_R) %>%
+   arrange(participant, trial_number, ts) 
 
   
 ```
@@ -205,6 +207,45 @@ saccades <- segments %>%
   ungroup %>%
   arrange(participant, trial_number, trial_ts) %>%
   mutate(is_visible_cue = if_else(is_visible, "visible", "hidden"))
+
+# pursuits <- segments %>%
+#   filter(class == "pursuit", is_trial) %>%
+#   group_by(participant, trial_number, is_visible) %>%
+#   arrange(participant, seg_index, desc(timept)) %>%
+#   ungroup %>%
+#   arrange(participant, trial_number, trial_ts) %>%
+#   mutate(is_visible_cue = if_else(is_visible, "visible", "hidden"))
+
+```
+
+
+Export saccade data to python for phase model
+
+R:stä sakkaditiedosto pythoniin:
+- hidden
+- mukana phase (error) at disappearance
+- mukana first_saccade: poista 1. sakkadi (pythonissa)
+- long - timept
+
+```{r}
+trial_start_phases <- df_trials %>%
+  filter(trial_type == "occluded_trial", target_class == "hidden") %>% 
+  group_by(participant, trial_number) %>%
+  filter(occl_ts == 0) %>% 
+  mutate(first_saccade = F, timept = "trial_start") %>%
+  select(participant, timept, ts, target_x,  target_y, trial_number:gazeY_s, trial_ts, occl_ts, 
+         unwrap_gaze_phase_R, unwrap_target_phase_R, phase_diff_unwrap, first_saccade) %>%
+  ungroup
+
+exp_sacc <- saccades %>%
+  filter(trial_type == "occluded_trial", target_class == "hidden") %>% 
+  select(participant, timept, ts, target_x,  target_y, trial_number:gazeY_s, trial_ts, occl_ts, 
+         unwrap_gaze_phase_R, unwrap_target_phase_R, phase_diff_unwrap, first_saccade) %>%
+  rbind(trial_start_phases) %>%
+  arrange(participant, trial_number, occl_ts)
+
+#write_csv(exp_sacc, "saccades_hidden.csv")
+
 
 ```
 
@@ -548,13 +589,13 @@ saccades %>%
 
 
 
-```{r fig.width=10}
+```{r fig.width=10, fig.height=7}
 
 saccades %>% 
-filter(!first_saccade) %>% 
+  filter(!first_saccade) %>% 
   filter(is_cue == 1, !is.na(timept), trial_type == "occluded_trial") %>%
   ggplot(aes(phase_diff_unwrap, fill = timept)) + 
-  geom_histogram(binwidth=.05, position = "identity", alpha = .4) +
+  geom_histogram(binwidth=.2, position = "identity", alpha = .4) +
   scale_x_continuous(limits = c(-2,2)) +
   geom_vline(aes(xintercept = 0), alpha = .5) +
   facet_wrap(participant~is_visible_cue, scales = "free_y", ncol=6)  +
@@ -566,7 +607,7 @@ filter(!first_saccade) %>%
 
 ```{r fig.width=10}
 saccades %>% 
-filter(!first_saccade) %>% 
+  filter(!first_saccade) %>% 
   filter(is_cue == 1, !is.na(timept), trial_type == "occluded_trial") %>%
   ggplot(aes(radius_diff, fill = timept)) + 
   geom_histogram(binwidth=1, position = "identity", alpha = .4) +
@@ -584,7 +625,7 @@ filter(!first_saccade) %>%
 ```{r}
 
 saccades %>% 
-filter(!first_saccade) %>% 
+  filter(!first_saccade) %>% 
   filter(is_cue == 1, !is.na(timept), trial_type == "occluded_trial") %>%
   ggplot(aes(phase_diff_unwrap, fill = timept)) + 
   geom_histogram(binwidth=.08, position = "identity", alpha = .4) +

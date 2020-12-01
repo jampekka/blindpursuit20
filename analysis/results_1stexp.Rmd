@@ -143,21 +143,21 @@ trial_saccades %>%
 
 ```{r fig.width=10, fig.height=7}
 
-saccadetimes_full %>% 
-  arrange(participant, target_class, trial_number, cond_ts) %>%
-  group_by(participant, target_class, trial_number) %>%
-  mutate(cumulative_saccades = cumsum(!is.na(seg_index))) %>%
-  ungroup %>%
-  ggplot(aes(cond_ts, cumulative_saccades,
-             group = interaction(participant, target_class, trial_number), color = target_class)) +
-  geom_line(alpha = .2) +
-  facet_wrap(~participant, labeller = purrr::partial(label_both, sep = " ")) +
-  labs(title = "Saccade count over time",
-       y = "Cumulative saccade count", x = "Duration of visible/hidden cue (s)", color = "") +
-  geom_smooth(aes(cond_ts, cumulative_saccades, color = target_class), inherit.aes = F,
-              method = "lm", se = F, linetype = "dashed") +
-  theme_bw()  +
-  scale_color_manual(values = color_vals)
+# saccadetimes_full %>% 
+#   arrange(participant, target_class, trial_number, cond_ts) %>%
+#   group_by(participant, target_class, trial_number) %>%
+#   mutate(cumulative_saccades = cumsum(!is.na(seg_index))) %>%
+#   ungroup %>%
+#   ggplot(aes(cond_ts, cumulative_saccades,
+#              group = interaction(participant, target_class, trial_number), color = target_class)) +
+#   geom_line(alpha = .2) +
+#   facet_wrap(~participant, labeller = purrr::partial(label_both, sep = " ")) +
+#   labs(title = "Saccade count over time",
+#        y = "Cumulative saccade count", x = "Duration of visible/hidden cue (s)", color = "") +
+#   geom_smooth(aes(cond_ts, cumulative_saccades, color = target_class), inherit.aes = F,
+#               method = "lm", se = F, linetype = "dashed") +
+#   theme_bw()  +
+#   scale_color_manual(values = color_vals)
 
 
 
@@ -186,7 +186,7 @@ csaccades %>%
              group = interaction(participant, target_class, trial_number), color = target_class)) +
   geom_line(alpha = .25) +
   facet_wrap(~participant, labeller = purrr::partial(label_both, sep = " ")) +
-  labs(title = "Saccade count over time (zero saccades included)",
+  labs(title = "Saccade count over time",
        y = "Cumulative saccade count", x = "Duration of visible/hidden cue (s)", color = "") +
   geom_smooth(aes(cond_ts, cumulative_saccades, color = target_class), inherit.aes = F,
               method = "lm", se = F, linetype = "dashed") +
@@ -196,20 +196,22 @@ csaccades %>%
 
 ```
 
-```{r}
+```{r fig.width=10, fig.height=7}
 csaccades %>%
   full_join(zero_saccades, by = c("participant", "cond_ts", "trial_number", "target_class", "cumulative_saccades")) %>%
   arrange(participant, target_class, cond_ts) %>%
   ggplot(aes(log(cond_ts+1), log(cumulative_saccades+1),
              group = interaction(participant, target_class, trial_number), color = target_class)) +
-  geom_line(alpha = .25) +
+  geom_path(alpha = .2) +
   facet_wrap(~participant, labeller = purrr::partial(label_both, sep = " ")) +
-  labs(title = "Saccade count over time (zero saccades included)",
-       y = "Cumulative saccade count", x = "Duration of visible/hidden cue (s)", color = "") +
+  labs(title = "Saccade count over time (log-log)",
+       y = "LOG Cumulative saccade count", x = "LOG Duration of visible/hidden cue (s)", 
+       color = "") +
   geom_smooth(aes(log(cond_ts+1), log(cumulative_saccades+1), color = target_class), inherit.aes = F,
               method = "lm", se = F, linetype = "dashed") +
   theme_bw()  +
   scale_color_manual(values = color_vals)
+
 
 ```
 
@@ -534,37 +536,111 @@ Saccade phase angles in log-log space
 ```{r fig.width=10, fig.height=7}
 
 plot_saccade_cp %>%
-  ggplot(aes(log(cond_ts+2.5), log(cumulative_phasedist+2.5),
+  ggplot(aes(log1p(cond_ts), log1p(cumulative_phasedist),
              group = interaction(participant, target_class, trial_number), 
              color = target_class)) +
 #  geom_point(alpha = .2, size = 1) +
   geom_path(alpha = .25) +
   # geom_point(data = plotdata %>% filter(phasedist < 0), 
   #            aes(cond_ts, cumulative_phasedist), alpha = .8) +
-  geom_line(aes(log(cond_ts+2.5), log(cond_ts * (pi/2)+2.5), color = "object phase angle"), linetype = "dashed", 
+  geom_line(aes(log1p(cond_ts), log1p(cond_ts * (pi/2)), color = "object phase angle"), linetype = "dashed", 
             alpha = .5, size=1, inherit.aes = F) +
   facet_wrap(~participant, labeller = purrr::partial(label_both, sep = " ")) +
-  labs(title = "Phase angle change over time",
+  scale_y_continuous(limits = c(0, log1p(5))) +
+  labs(title = "Phase angle change over time (log-log)",
        subtitle = "Cumulative phase angle change by saccades",
-       y = "Cumulative phase angle change (radians)", 
-       x = "Duration of visible/hidden cue (s)", color = "") +
-  geom_smooth(aes(log(cond_ts+2.5), log(cumulative_phasedist+2.5), color = target_class), inherit.aes = F,
+       y = "LOG Cumulative phase angle change (radians)", 
+       x = "LOG Duration of visible/hidden cue (s)", color = "") +
+  geom_smooth(aes(log1p(cond_ts), log1p(cumulative_phasedist), color = target_class), inherit.aes = F,
               method = "lm", se = F, linetype = "dashed") +
   theme_bw()  +
   scale_color_manual(values = c(color_vals, "object phase angle" = "black")) # +
 #  guides(color = guide_legend(override.aes = list(alpha = 1))) 
 
 ```
+```{r}
+# 
+# fit_ts <- lmer(cumulative_phasedist ~ cond_ts * target_class + (1|participant), data = plot_saccade_cp)
+# 
+# 
+# broom.mixed::augment(fit_ts) %>% 
+#   ggplot(aes(cond_ts, cumulative_phasedist, color = target_class)) + 
+#   geom_point(alpha = .15, size = 1) +
+#   geom_line(aes(cond_ts, .fitted), alpha = 1) +
+#   facet_wrap(~participant) +
+#   theme_bw() +
+#   theme(legend.position = "none")
+# 
+# 
+# fit_ts2 <- lmer(cumulative_phasedist ~ cond_ts * target_class + (1|participant/trial_number), data = plot_saccade_cp)
+# 
+# fit_ts3 <- lmer(logcp ~ logts * target_class + (1|participant/trial_number), 
+#                 data = plot_saccade_cp %>% 
+#                   mutate(logcp = log1p(cumulative_phasedist),
+#                          logts = log1p(cond_ts)))
+# 
+# summary(fit_ts)
+# summary(fit_ts2)
+# summary(fit_ts3)
+# 
+# glance(fit_ts)
+# glance(fit_ts2)
+# glance(fit_ts3)
+# 
+# broom.mixed::augment(fit_ts2) %>% 
+#   ggplot(aes(cond_ts, cumulative_phasedist, color = target_class)) + 
+#   geom_point(alpha = .15, size = 1) +
+#   geom_line(aes(cond_ts, .fitted), alpha = 1) +
+#   facet_wrap(~participant) +
+#   theme_bw() +
+#   theme(legend.position = "none")
+# 
+# broom.mixed::augment(fit_ts3) %>% 
+#   ggplot(aes(exp(logts) - 1, exp(logcp) - 1, color = target_class)) + 
+#   geom_point(alpha = .15, size = 1) +
+#   geom_line(aes(exp(logts) - 1, exp(.fitted)-1), alpha = 1) +
+#   facet_wrap(~participant) +
+#   theme_bw() +
+#   theme(legend.position = "none")
+
+```
+
+
+## Saccade launch/landing points during occlusion
+
+```{r fig.width=10, fig.height=5}
+
+saccades %>% 
+  filter(!first_saccade) %>% 
+  filter(signtype == "cue", !is.na(timept), trial_type == "occluded_trial", 
+         target_class == "hidden") %>%
+  ggplot(aes(phase_diff_unwrap, fill = timept)) + 
+  geom_histogram(binwidth=.2, position = "identity", alpha = .4) +
+  scale_x_continuous(limits = c(-2,2)) +
+  geom_vline(aes(xintercept = 0), alpha = .5) +
+  facet_wrap(~participant, scales = "free_y", ncol=5, 
+             labeller = purrr::partial(label_both, sep = " ")) +
+  labs(title = "Phase difference between saccade launch/landing points and object",
+       subtitle = "Participant-wise distributions, occluded trials (1st saccade removed)", 
+       fill = "",
+       x = "Phase difference", y = "") +
+  theme_bw() 
+
+
+```
+
 
 
 
 ## Pursuits
 
-Phase change from start to end of pursuit segment vs. "phase travelled"  
 
-NOTE: Principle is different; cond_ts corresponds to *end time* of segment and phasedist to the phase change during that segment. Make the change to saccades too?
+```{r message=F}
+#Phase change from start to end of pursuit segment vs. "phase travelled"  
 
-```{r}
+#NOTE: Principle is different; cond_ts corresponds to *end time* of segment and phasedist to the phase change during that segment. Make the change to saccades too?
+
+
 pursuit_timeseries <- df_trials %>%
   filter(trial_type == "occluded_trial", target_class %in% c("visible", "hidden")) %>%
   select(participant, trial_number, ts, target_class, seg_fill, unwrap_gaze_phase_R, unwrap_target_phase_R) %>%
@@ -591,6 +667,50 @@ pursuittimes_full <- pursuit_timeseries %>%
   ungroup
 
 ```
+
+## Phase angle covered by pursuits
+
+
+```{r fig.width=10, fig.height=7}
+
+pursuittimes_full %>% 
+  ggplot(aes(participant, phasedist, fill = target_class)) + geom_boxplot() +
+  theme_bw() +
+  scale_fill_manual(values = color_vals) +
+  labs(title = "Phase angle covered by pursuits: participant-wise distributions", 
+       subtitle = '"Absolute" phase angle change during a single pursuit segment' ,
+       y = "Phase angle change (radians)", fill = "")  +
+  scale_y_continuous(limits = c(-0.5, 3)) +
+    theme(strip.placement = "outside", 
+          strip.background = element_blank())
+
+```
+
+### Trial-level: total phase angle covered by pursuits
+
+
+```{r fig.width=10, fig.height=7, message=F}
+
+pursuittimes_full %>%
+  group_by(participant, trial_number, target_class) %>%
+  summarise(total_phasedist = sum(phasedist)) %>%
+  ungroup %>%
+  left_join(df_dur) %>%
+  mutate(target_phasedist = duration * (pi/2)) %>%
+  mutate(rel_phasedist = total_phasedist / target_phasedist) %>% 
+  ggplot(aes(participant, rel_phasedist, fill = target_class %>% fct_rev)) + geom_boxplot() +
+  theme_bw() +
+  scale_fill_manual(values = color_vals) +
+  scale_y_continuous(labels = scales::percent, limits = c(0, 1.5)) + 
+  labs(title = "Phase angle covered by pursuits: participant-wise distributions", 
+       subtitle = "Proportion of phase angle changes by pursuits out of total phase angle of object",
+       y = "Percentage", fill = "")  +
+    theme(strip.placement = "outside", 
+          strip.background = element_blank())  
+
+```
+
+### Within trials
 
 ```{r fig.width=10, fig.height=7}
 
@@ -627,6 +747,30 @@ plot_pursuit_cp %>%
   scale_y_continuous(limits = c(0, 5)) +
   guides(color = guide_legend(override.aes = list(alpha = 1)))
 
+# # NOTE some -3 values are missing
+plot_pursuit_cp %>%
+  ggplot(aes(log1p(cond_ts), log1p(cumulative_phasedist),
+             group = interaction(participant, target_class, trial_number),
+             color = target_class)) +
+#  geom_point(alpha = .2, size = 1) +
+  geom_path(alpha = .2) +
+  # geom_point(data = plotdata %>% filter(phasedist < 0),
+  #            aes(cond_ts, cumulative_phasedist), alpha = .8) +
+  geom_line(aes(log1p(cond_ts), log1p(cond_ts * (pi/2)), color = "object phase angle"), linetype = "dashed",
+            alpha = .5, size=1, inherit.aes = F) +
+  facet_wrap(~participant, labeller = purrr::partial(label_both, sep = " ")) +
+  labs(title = "Phase angle change over time (log-log)",
+       subtitle = "Cumulative phase angle change by pursuits",
+       y = "LOG Cumulative phase angle change (radians)",
+       x = "LOG Duration of visible/hidden cue (s)", color = "") +
+  geom_smooth(aes(log1p(cond_ts), log1p(cumulative_phasedist), 
+                  color = target_class), inherit.aes = F,
+              method = "lm", se = F, linetype = "dashed") +
+  theme_bw() +
+  scale_color_manual(values = c(color_vals, "object phase angle" = "black")) +
+  scale_y_continuous(limits = c(0, log1p(5))) +
+  guides(color = guide_legend(override.aes = list(alpha = 1)))
+
 ```
 
 
@@ -656,11 +800,12 @@ plot_pursuit_cp %>%
 
 ```
 
-Plot saccade + pursuit
 
-NOTE: cond_ts
 
-```{r fig.width=10, fig.height=7}
+```{r fig.width=10, fig.height=7, message = F}
+
+# NOTE: cond_ts
+
 pursuitjoin <- plot_pursuit_cp %>%
   select(participant:target_class, cond_ts, phasedist, cumulative_phasedist) %>%
   mutate(seg = "pursuit")
@@ -704,33 +849,15 @@ stackdata <- plot_saccade_cp %>%
   mutate(total_cphasedist = sum(cumulative_phasedist)) %>%
   ungroup 
 
-stackdata %>%
-  ggplot() +
-  geom_line(aes(cond_ts, total_cphasedist, group = interaction(participant, trial_number)), alpha = .1) +
-  geom_line(aes(cond_ts, cond_ts * (pi/2), color = "object phase angle"), linetype = "dashed", 
-            alpha = .5, size=1, inherit.aes = F) +
-  facet_wrap(target_class~participant, labeller = purrr::partial(label_both, sep = " ")) +
-  # labs(title = "Phase angle change over time",
-  #      subtitle = "Cumulative phase angle change by pursuits",
-  #      y = "Cumulative phase angle change (radians)",
-  #      x = "Duration of visible/hidden cue (s)", color = "") +
-#  geom_smooth(aes(cond_ts, cumulative_phasedist, color = seg), inherit.aes = F,
-#              method = "lm", se = F, linetype = "dashed") +
-  theme_bw() +
-  scale_color_manual(values = c(color_vals, "object phase angle" = "black")) +
-  scale_fill_manual(values = color_vals) +
-  scale_y_continuous(limits = c(0, 5)) +
-  guides(fill = guide_legend(override.aes = list(alpha = 1)))
-
-
 
 namelabel <- function(x) {
   paste0("participant ", x)
 }
 
 
-visphase <- stackdata %>%
-  filter(target_class == "visible") %>%
+plot_phase <- function(cond) {
+  p <- stackdata %>%
+  filter(target_class == cond) %>%
   mutate(seg = fct_rev(seg)) %>%
   ggplot(aes(cond_ts, cumulative_phasedist,
              group = interaction(participant, seg, trial_number),
@@ -743,7 +870,7 @@ visphase <- stackdata %>%
   geom_line(aes(cond_ts, cond_ts * (pi/2), color = "object phase angle"), linetype = "dashed", 
             alpha = .5, size=1, inherit.aes = F) +
   facet_wrap(~participant, labeller = labeller(participant = namelabel), ncol = 2)  +
-  labs(title = "Visible",
+  labs(title = str_to_title(cond),
        #subtitle = "Cumulative phase angle change by saccades/pursuits",
        y = "Cumulative phase angle change (radians)",
        x = "Duration of cue (s)", color = "", fill = "") +
@@ -755,37 +882,59 @@ visphase <- stackdata %>%
   scale_y_continuous(limits = c(0, 5)) +
   scale_x_continuous(limits = c(0,3)) +
   guides(fill = guide_legend(override.aes = list(alpha = 1)))
+  
+  p
+}
 
-hidphase <- stackdata %>%
-  filter(target_class == "hidden") %>%
+phaseplots <- lapply(c("visible", "hidden"), plot_phase)
+
+p <- ggarrange(plotlist = phaseplots, common.legend = T, ncol = 2, legend = "bottom") %>% 
+  annotate_figure(top = "Phase angle change over time by saccades/pursuits")
+
+p
+
+```
+
+
+```{r fig.width=10, fig.height=7}
+plot_phaselog <- function(cond) {
+  p <- stackdata %>%
+  filter(target_class == cond) %>%
   mutate(seg = fct_rev(seg)) %>%
-  ggplot(aes(cond_ts, cumulative_phasedist,
+  ggplot(aes(log1p(cond_ts), log1p(cumulative_phasedist),
              group = interaction(participant, seg, trial_number),
              fill = seg)) +
 #  geom_point(alpha = .2, size = 1) +
   geom_area(alpha = .05, position = "stack") +
-  geom_line(aes(cond_ts, total_cphasedist, group = interaction(participant, trial_number)), alpha = .2, inherit.aes = F) +
+  geom_line(aes(log1p(cond_ts), log1p(total_cphasedist), group = interaction(participant, trial_number)), alpha = .2, inherit.aes = F) +
   # geom_point(data = plotdata %>% filter(phasedist < 0),
   #            aes(cond_ts, cumulative_phasedist), alpha = .8) +
-  geom_line(aes(cond_ts, cond_ts * (pi/2), color = "object phase angle"), linetype = "dashed", 
+  geom_line(aes(log1p(cond_ts), 
+                log1p(cond_ts * (pi/2)), color = "object phase angle"), linetype = "dashed", 
             alpha = .5, size=1, inherit.aes = F) +
   facet_wrap(~participant, labeller = labeller(participant = namelabel), ncol = 2)  +
-  labs(title = "Hidden",
+  labs(title = str_to_title(cond),
        #subtitle = "Cumulative phase angle change by saccades/pursuits",
-       #y = "Cumulative phase angle change (radians)",
-       x = "Duration of cue (s)", color = "", fill = "") +
+       y = "LOG Cumulative phase angle change (radians)",
+       x = "LOG Duration of cue (s)", color = "", fill = "") +
 #  geom_smooth(aes(cond_ts, cumulative_phasedist, color = seg), inherit.aes = F,
 #              method = "lm", se = F, linetype = "dashed") +
   theme_bw() +
   scale_color_manual(values = c(color_vals, "object phase angle" = "black")) +
   scale_fill_manual(values = color_vals) +
-  scale_y_continuous(limits = c(0, 5)) +
-  scale_x_continuous(limits = c(0,3)) +
+  scale_y_continuous(limits = c(0, log1p(5))) +
+  scale_x_continuous(limits = c(0, log1p(3))) +
   guides(fill = guide_legend(override.aes = list(alpha = 1)))
+  
+  p
+}
 
+phaseplotslog <- lapply(c("visible", "hidden"), plot_phaselog)
 
-ggarrange(visphase, hidphase, common.legend = T, ncol = 2, legend = "bottom") %>% 
-  annotate_figure(top = "Phase angle change over time by saccades/pursuits")
+pp <- ggarrange(plotlist = phaseplotslog, common.legend = T, ncol = 2, legend = "bottom") %>% 
+  annotate_figure(top = "Phase angle change over time by saccades/pursuits (log-log)")
+
+pp
 
 ```
 
@@ -826,80 +975,60 @@ ggarrange(visphase, hidphase, common.legend = T, ncol = 2, legend = "bottom") %>
 ```
 
 
-Is more phase covered overall during hidden trials?
+
 
 ```{r}
-df_trials %>%
-  filter(trial_type == "occluded_trial", target_class %in% c("visible", "hidden")) %>%
-  group_by(participant, trial_number, target_class) %>%
-  mutate(trial_dur = max(ts) - min(ts),
-            phase_change = last(unwrap_gaze_phase_R) - first(unwrap_gaze_phase_R),
-            tphase_change = last(unwrap_target_phase_R) - first(unwrap_target_phase_R)) %>%
-#  mutate(tpcheck = trial_dur * (pi/2)) %>%
-  mutate(phase_rel = phase_change / tphase_change) %>%
-  ggplot(aes(participant, phase_rel, fill = target_class)) + geom_boxplot(alpha = .5) 
+# Is more phase covered overall during hidden trials?
+# df_trials %>%
+#   filter(trial_type == "occluded_trial", target_class %in% c("visible", "hidden")) %>%
+#   group_by(participant, trial_number, target_class) %>%
+#   mutate(trial_dur = max(ts) - min(ts),
+#             phase_change = last(unwrap_gaze_phase_R) - first(unwrap_gaze_phase_R),
+#             tphase_change = last(unwrap_target_phase_R) - first(unwrap_target_phase_R)) %>%
+# #  mutate(tpcheck = trial_dur * (pi/2)) %>%
+#   mutate(phase_rel = phase_change / tphase_change) %>%
+#   ggplot(aes(participant, phase_rel, fill = target_class)) + geom_boxplot(alpha = .5) 
 
 ```
 
 
 
-
 ```{r}
+# nice plot but tells nothing new
 
-# what should this plot tell
-pursuittimes_full %>%
-  ggplot(aes(cond_ts, cumulative_dur,
-             group = interaction(participant, target_class, trial_number),
-             color = target_class)) +
-#  geom_point(alpha = .2, size = 1) +
-  geom_path(alpha = .25) +
-  # geom_point(data = plotdata %>% filter(phasedist < 0),
-  #            aes(cond_ts, cumulative_phasedist), alpha = .8) +
-  facet_wrap(~participant, labeller = purrr::partial(label_both, sep = " ")) +
-  # labs(title = "Phase angle change over time",
-  #      subtitle = "Cumulative phase angle change by saccades",
-  #      y = "Cumulative phase angle change (radians)",
-  #      x = "Duration of visible/hidden cue (s)", color = "") +
-  geom_smooth(aes(cond_ts, cumulative_dur, color = target_class), inherit.aes = F,
-              method = "lm", se = F, linetype = "dashed") +
-  theme_bw()  +
-  scale_color_manual(values = color_vals) +
-  guides(color = guide_legend(override.aes = list(alpha = 1)))
-```
+# pursuittimes_full %>%
+#   ggplot(aes(cond_ts, cumulative_phasedist/target_phasedist,
+#              group = interaction(participant, target_class, trial_number), 
+#              color = target_class)) +
+#   geom_point(alpha = .2, size = 1) +
+#   facet_wrap(~participant, labeller = purrr::partial(label_both, sep = " ")) +
+#   # labs(title = "Phase angle change over time",
+#   #      subtitle = '"Absolute" phase angle change during a single saccade',
+#   #      y = "Phase angle change (radians)", 
+#   #      x = "Duration of visible/hidden cue (s)", color = "") +
+#   scale_y_continuous(limits = c(-1,2)) +
+# #  geom_smooth(aes(cond_ts, cumulative_phasedist, color = target_class), inherit.aes = F,
+# #              method = "lm", se = F, linetype = "dashed") +
+#   theme_bw()  +
+#   scale_color_manual(values = color_vals) +
+#   guides(color = guide_legend(override.aes = list(alpha = 1, size = 3))) 
 
-
-```{r}
-pursuittimes_full %>%
-  ggplot(aes(cond_ts, phasedist/target_phasedist,
-             group = interaction(participant, target_class, trial_number), 
-             color = target_class)) +
-  geom_point(alpha = .2, size = 1) +
-  facet_wrap(~participant, labeller = purrr::partial(label_both, sep = " ")) +
-  # labs(title = "Phase angle change over time",
-  #      subtitle = '"Absolute" phase angle change during a single saccade',
-  #      y = "Phase angle change (radians)", 
-  #      x = "Duration of visible/hidden cue (s)", color = "") +
-  scale_y_continuous(limits = c(-1,2)) +
-#  geom_smooth(aes(cond_ts, cumulative_phasedist, color = target_class), inherit.aes = F,
-#              method = "lm", se = F, linetype = "dashed") +
-  theme_bw()  +
-  scale_color_manual(values = color_vals) +
-  guides(color = guide_legend(override.aes = list(alpha = 1, size = 3))) 
 
 ```
 
 
-```{r}
+```{r fig.height=7, fig.width=10}
+
 pursuittimes_full %>%
   ggplot(aes(cond_ts, phase_speed,
              group = interaction(participant, target_class, trial_number), 
              color = target_class)) +
-  geom_point(alpha = .2, size = 1) +
+  geom_point(alpha = .4, size = 1) +
   facet_wrap(~participant, labeller = purrr::partial(label_both, sep = " ")) +
-  # labs(title = "Phase angle change over time",
-  #      subtitle = '"Absolute" phase angle change during a single saccade',
-  #      y = "Phase angle change (radians)", 
-  #      x = "Duration of visible/hidden cue (s)", color = "") +
+  labs(title = "Angular speed of pursuit segments",
+      # subtitle = "",
+       y = "Speed (radians/s)",
+       x = "Duration of visible/hidden cue (s)", color = "") +
   scale_y_continuous(limits = c(-1,2)) +
 #  geom_smooth(aes(cond_ts, cumulative_phasedist, color = target_class), inherit.aes = F,
 #              method = "lm", se = F, linetype = "dashed") +
@@ -908,5 +1037,42 @@ pursuittimes_full %>%
   guides(color = guide_legend(override.aes = list(alpha = 1, size = 3))) 
 
   
+pursuittimes_full %>%
+  ggplot(aes(cond_ts, phasedist,
+             group = interaction(participant, target_class, trial_number),
+             color = target_class)) +
+  geom_point(alpha = .2, size = 1) +
+  facet_wrap(~participant, labeller = purrr::partial(label_both, sep = " ")) +
+  # labs(title = "Phase angle change over time",
+  #      subtitle = '"Absolute" phase angle change during a single saccade',
+  #      y = "Phase angle change (radians)",
+  #      x = "Duration of visible/hidden cue (s)", color = "") +
+  scale_y_continuous(limits = c(-1,2)) +
+#  geom_smooth(aes(cond_ts, cumulative_phasedist, color = target_class), inherit.aes = F,
+#              method = "lm", se = F, linetype = "dashed") +
+  theme_bw()  +
+  scale_color_manual(values = color_vals) +
+  guides(color = guide_legend(override.aes = list(alpha = 1, size = 3)))
+# 
+# pursuittimes_full %>%
+#   ggplot(aes(cond_ts, pursuit_dur,
+#              group = interaction(participant, target_class, trial_number), 
+#              color = target_class)) +
+#   geom_point(alpha = .2, size = 1) +
+#   facet_wrap(~participant, labeller = purrr::partial(label_both, sep = " ")) +
+#   # labs(title = "Phase angle change over time",
+#   #      subtitle = '"Absolute" phase angle change during a single saccade',
+#   #      y = "Phase angle change (radians)", 
+#   #      x = "Duration of visible/hidden cue (s)", color = "") +
+#   scale_y_continuous(limits = c(-1,2)) +
+# #  geom_smooth(aes(cond_ts, cumulative_phasedist, color = target_class), inherit.aes = F,
+# #              method = "lm", se = F, linetype = "dashed") +
+#   theme_bw()  +
+#   scale_color_manual(values = color_vals) +
+#   guides(color = guide_legend(override.aes = list(alpha = 1, size = 3))) 
+
+  
 ```
+
+
 

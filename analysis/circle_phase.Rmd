@@ -221,11 +221,6 @@ saccades <- segments %>%
 
 Export saccade data to python for phase model
 
-R:stä sakkaditiedosto pythoniin:
-- hidden
-- mukana phase (error) at disappearance
-- mukana first_saccade: poista 1. sakkadi (pythonissa)
-- long - timept
 
 ```{r}
 trial_start_phases <- df_trials %>%
@@ -249,6 +244,56 @@ exp_sacc <- saccades %>%
 
 ```
 
+
+
+```{r fig.width=12, fig.height=15}
+df_trials %>%
+  group_by(participant, block) %>%
+  mutate(block_ts = ts - min(ts)) %>%
+  filter(target_class == "target") %>%
+  group_by(participant, trial_number) %>%
+  slice(1) %>%
+  group_by(participant) %>%
+  mutate(x = 1:n()) %>%
+  ggplot(aes(x, x_rel, shape = factor(success_trial), color = block)) + 
+  geom_point(alpha = .9) +
+  geom_line(aes(group = participant), alpha = .2) +
+  facet_grid(participant~.)
+
+tgt <- df_trials %>%
+  group_by(participant, block) %>%
+  mutate(block_ts = ts - min(ts)) %>%
+  filter(target_class == "target", block != 1) %>%
+  group_by(participant, trial_number) %>%
+  slice(1) %>%
+  group_by(participant) %>%
+  mutate(x = 1:n()) %>%
+  ungroup
+
+tgt %>%
+  mutate(phase_diff_unwrap = scale(phase_diff_unwrap),
+         radius_diff = scale(radius_diff)) %>%
+  gather(var, value, phase_diff_unwrap, radius_diff) %>%
+  ggplot(aes(x, value, shape = factor(success_trial), color = var)) + 
+  geom_point(alpha = .7) +
+  facet_grid(participant~.)
+  
+  
+fit <- lmer(radius_diff ~ factor(success_trial) * x + (1|participant), data = tgt)
+
+summary(fit)
+
+
+
+  
+tgt %>%
+  mutate(phase_diff_unwrap = scale(phase_diff_unwrap),
+         radius_diff = scale(radius_diff)) %>%
+  ggplot(aes(x, radius_diff, shape = factor(success_trial), color = factor(success_trial))) + 
+  geom_point(alpha = .7) +
+  facet_grid(participant~.)
+
+```
 
 
 # Circle task

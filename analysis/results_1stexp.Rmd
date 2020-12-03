@@ -53,6 +53,7 @@ df_dur <- df_trials %>%
                values_to = "duration") %>%
   filter(!is.infinite(duration))
 
+
 saccadetimes_full <- saccades %>%
   filter(signtype == "cue", trial_type == "occluded_trial") %>%
   group_by(participant, seg_index, target_class) %>%
@@ -95,6 +96,45 @@ trial_saccades <- saccadetimes_full %>%
 
 
 ```
+
+alternative to calculate saccades ts
+
+```{r}
+saccade_timeseries <- df_trials %>%
+  filter(trial_type == "occluded_trial", target_class %in% c("visible", "hidden")) %>%
+  select(participant, trial_number, ts, target_class, seg_fill, unwrap_gaze_phase_R, unwrap_target_phase_R) %>%
+  group_by(participant) %>%
+  arrange(participant, ts) %>%
+  mutate(seg_index = data.table::rleid(seg_fill)) %>%
+  group_by(participant, trial_number, target_class) %>%
+  mutate(cond_ts = ts - min(ts)) %>%
+  filter(seg_fill == "saccade") %>%
+  select(-seg_fill, -ts) %>%
+  ungroup
+
+
+saccadetimes_full2 <- saccade_timeseries %>%
+  group_by(participant, trial_number, target_class, seg_index) %>%
+  arrange(participant, trial_number, target_class, seg_index, cond_ts) %>%
+  summarise(saccade_dur = max(cond_ts) - min(cond_ts),
+            cond_ts = max(cond_ts),
+            phasedist = last(unwrap_gaze_phase_R) - first(unwrap_gaze_phase_R),
+            phase_speed = phasedist/saccade_dur) %>%
+  mutate(cumulative_phasedist = cumsum(phasedist),
+         target_phasedist = (cond_ts) * (pi/2),
+         cumulative_dur = cumsum(saccade_dur)) %>%
+  ungroup
+
+
+# cond_ts now match. what are the excess saccades?
+sf <- saccadetimes_full %>% mutate(cond_ts = cond_ts + saccade_dur) %>% select(participant:cond_ts, trial_number)
+
+saccadetimes_full2
+
+saccadetimes_full2 %>% anti_join(sf, by = c("participant", "trial_number", "cond_ts"))
+
+```
+
 
 ## Saccade frequency
 
@@ -629,6 +669,138 @@ saccades %>%
 
 ```
 
+Mean/median per participant
+```{r}
+saccades %>% 
+  filter(!first_saccade) %>% 
+  filter(signtype == "cue", !is.na(timept), trial_type == "occluded_trial", 
+         target_class == "hidden") %>%
+  group_by(participant, timept) %>%
+  summarise(across(phase_diff_unwrap, list(mean = mean, sd = sd, median = median, iqr = IQR), .names = "{.fn}")) %>%
+  ggplot(aes(participant, mean, color = timept)) + geom_point()
+
+
+saccades %>% 
+  filter(!first_saccade) %>% 
+  filter(signtype == "cue", !is.na(timept), trial_type == "occluded_trial", 
+         target_class == "hidden") %>%
+  ggplot(aes(participant, phase_diff_unwrap, color = timept)) + 
+  stat_summary(fun.data = "mean_se", geom = "pointrange", size = 1, position = position_dodge(.1)) +
+  geom_hline(aes(yintercept = 0)) +
+  labs(title = "mean") +
+  coord_flip()
+  
+  
+saccades %>% 
+  filter(!first_saccade) %>% 
+  filter(signtype == "cue", !is.na(timept), trial_type == "occluded_trial", 
+         target_class == "hidden") %>%
+ggplot(aes(participant, phase_diff_unwrap, color = timept)) +  
+  stat_summary(fun.min = function(z) { quantile(z,0.25) },
+  fun.max = function(z) { quantile(z,0.75) },
+  fun = median, size = 1, position = position_dodge(.1))+
+  geom_hline(aes(yintercept = 0)) +
+  labs(title = "median") +
+  coord_flip()
+
+
+# per saccade
+saccades %>% 
+  filter(!first_saccade) %>% 
+  filter(signtype == "cue", !is.na(timept), trial_type == "occluded_trial", 
+         target_class == "hidden") %>%
+  group_by(participant, seg_index) %>%
+  filter(abs(phase_diff_unwrap) == min(abs(phase_diff_unwrap))) %>%
+  group_by(participant) %>%
+  count(timept) %>%
+  mutate(p = prop.table(n) * 100) %>%
+  ggplot(aes(participant, p, fill = timept)) + geom_col() 
+
+saccades %>% 
+  filter(!first_saccade) %>% 
+  filter(signtype == "cue", !is.na(timept), trial_type == "occluded_trial", 
+         target_class == "hidden") %>%
+  select(participant, seg_index, timept, phase_diff_unwrap) %>%
+  spread(timept, phase_diff_unwrap) %>%
+  mutate(ll_diff = abs(landing) - abs(launch)) %>% 
+  ggplot(aes(participant, ll_diff)) + 
+  stat_summary(fun.min = function(z) { quantile(z,0.25) },
+  fun.max = function(z) { quantile(z,0.75) },
+  fun = median, size = 1, position = position_dodge(.1))+
+  geom_hline(aes(yintercept = 0)) +
+  labs(title = "median") +
+  coord_flip()
+
+
+saccades %>% 
+  filter(!first_saccade) %>% 
+  filter(signtype == "cue", !is.na(timept), trial_type == "occluded_trial", 
+         target_class == "hidden") %>%
+  select(participant, seg_index, timept, phase_diff_unwrap) %>%
+  spread(timept, phase_diff_unwrap) %>%
+  mutate(ll_diff = abs(landing) - abs(launch)) %>% 
+  ggplot(aes(participant, ll_diff)) + 
+  stat_summary(fun.data = "mean_se", geom = "pointrange", size = 1, position = position_dodge(.1)) +
+  geom_hline(aes(yintercept = 0)) +
+  labs(title = "mean") +
+  coord_flip()
+
+  
+```
+
+#### 
+
+
+
+```{r fig.height=7, fig.width=10}
+# absolute (cartesian) distance, phase and error difference over time (during occlusion)
+# mark reappearance timepoints + connect trial points with lines?
+# first saccades with different color
+# launch/landing?
+
+
+plot_saccade_diff <- function(sbj) {
+
+saccades %>%
+  filter(signtype == "cue", !is.na(timept), trial_type == "occluded_trial", 
+         target_class == "hidden", timept == "launch") %>% 
+  mutate(gt_abs_dist = sqrt((gazeX_s - target_x)^2 + (gazeY_s - target_y)^2)) %>%
+  select(participant, trial_number, seg_index, timept, occl_ts, phase_diff_unwrap, radius_diff, gt_abs_dist, first_saccade) %>%
+  filter(abs(phase_diff_unwrap) < 2, abs(radius_diff) < 10) %>%
+  gather(var, value, phase_diff_unwrap:gt_abs_dist) %>%
+  mutate(var = recode(var, gt_abs_dist = "Euclidean distance", phase_diff_unwrap = "Phase difference",
+                      radius_diff = "Radius difference")) %>%
+  group_by(var) %>%
+  mutate(y_min = min(value),
+         y_max = max(value)) %>%
+  ungroup %>%
+  filter(participant == sbj) %>%
+  ggplot(aes(occl_ts, value)) + 
+  geom_hline(aes(yintercept = 0), alpha = .3, size = 1) +
+  geom_point(aes(color = first_saccade), alpha = .8, size = 1) +
+  geom_path(aes(group = trial_number), alpha = .1) +
+  facet_wrap(~var, ncol = 1, scales = "free_y", strip.position = "left") +
+  scale_x_continuous(limits = c(0,3)) +
+  theme_bw() +
+  geom_blank(aes(y = y_min)) +
+  geom_blank(aes(y = y_max)) +
+  scale_color_discrete(name = "", breaks = T, labels = "first saccade") +
+  labs(y = "", x = "Time from disappearance (s)", 
+       title = "Difference between gaze and target in occluded trials (saccade launch points)",
+       subtitle = paste("Participant", sbj)) +
+  theme(strip.placement = "outside", 
+        strip.background = element_blank(), 
+        legend.position = c(.9,1.06))
+  
+}
+    
+
+
+diffplots <- lapply(1:10, plot_saccade_diff)
+
+diffplots
+
+```
 
 
 
@@ -647,13 +819,13 @@ pursuit_timeseries <- df_trials %>%
   group_by(participant) %>%
   arrange(participant, ts) %>%
   mutate(seg_index = data.table::rleid(seg_fill)) %>%
-  filter(seg_fill == "pursuit") %>%
   group_by(participant, trial_number, target_class) %>%
   mutate(cond_ts = ts - min(ts)) %>%
+  filter(seg_fill == "pursuit") %>%
   select(-seg_fill, -ts) %>%
   ungroup
 
-#cond_ts = pursuit begin point
+#cond_ts = pursuit end point
 pursuittimes_full <- pursuit_timeseries %>%
   group_by(participant, trial_number, target_class, seg_index) %>%
   arrange(participant, trial_number, target_class, seg_index, cond_ts) %>%

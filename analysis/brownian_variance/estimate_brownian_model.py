@@ -2,11 +2,13 @@ import numpy as np
 import numba
 import scipy.optimize
 
-@numba.njit
+jit = numba.njit
+
+@jit
 def normlogpdf(x, m, v):
     return (-np.log(v*np.pi*2) - (m - x)**2/(v))/2
 
-@numba.njit
+@jit
 def trial_loglikelihood(trial, m_0, m_t, v_0, v_t, v_n):
     total = 0.0
 
@@ -49,3 +51,29 @@ def estimate_brownian_model(trials):
     v_0, v_t, v_n = np.exp(fit.x[2:])
 
     return m_0, v_0, m_t, v_t, v_n
+
+
+def sample_brownian_model_params(trials):
+    from adametro import adaptive_metropolis
+    trials = tuple(trials) # Required for numba
+    @jit
+    def loglikelihood(params):
+        m_0, m_t, v_0, v_t, v_n = params
+        total = 0.0
+        for trial in trials:
+            total += trial_loglikelihood(trial, m_0, m_t, v_0, v_t, v_n)
+
+        return total
+    
+    initial = [0.0, 0.0, np.log(1.0), np.log(1.0), np.log(1.0)]
+
+    mangler = lambda x: loglikelihood(np.concatenate((x[:2], np.exp(x[2:]))))
+    mangler = numba.njit(mangler)
+    maxlik = scipy.optimize.minimize(lambda x: -mangler(x), np.array(initial))
+    
+    samples = adaptive_metropolis(mangler, maxlik.x.copy(), np.eye(len(initial))*0.001, n_samples=2000, )
+    samples[:,2:] = np.exp(samples[:,2:])
+    samples = samples[1000:]
+    return samples
+
+

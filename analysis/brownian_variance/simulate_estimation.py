@@ -53,7 +53,7 @@ plt.show()
 """
 
 opt = estimate_brownian_model(data)
-#print(opt)
+print(opt)
 samples = sample_brownian_model_params(data)
 #fits = [simulate_fit() for i in range(100)]
 names = "m0 mt v0 vt vn".split()
@@ -71,7 +71,7 @@ for row, yvar in zip(plots, names):
         if xvar == yvar:
             ax.hist(samples[xvar], density=True, bins='scott')
             ax.axvline(xtrue, color='black')
-            #ax.axvline(opts[xvar], color='red')
+            ax.axvline(opts[xvar], color='red')
         else:
             ax.plot(samples[xvar], samples[yvar], '.')
             ax.axvline(xtrue, color='black')

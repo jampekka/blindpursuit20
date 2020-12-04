@@ -36,6 +36,8 @@ def estimate_brownian_model(trials):
     """Estimate "brownian" model parameters
         NOTE: Assumes that timestamps start from 0 (but don't have to include samples at 0)
     """
+    trials = tuple(trials) # Required for numba
+    @jit
     def loglikelihood(m_0, m_t, v_0, v_t, v_n):
         total = 0.0
 
@@ -50,7 +52,7 @@ def estimate_brownian_model(trials):
     m_0, m_t = fit.x[:2]
     v_0, v_t, v_n = np.exp(fit.x[2:])
 
-    return m_0, v_0, m_t, v_t, v_n
+    return m_0, m_t, v_0, v_t, v_n
 
 
 def sample_brownian_model_params(trials):
@@ -71,7 +73,7 @@ def sample_brownian_model_params(trials):
     mangler = numba.njit(mangler)
     maxlik = scipy.optimize.minimize(lambda x: -mangler(x), np.array(initial))
     
-    samples = adaptive_metropolis(mangler, maxlik.x.copy(), np.eye(len(initial))*0.001, n_samples=2000, )
+    samples = adaptive_metropolis(mangler, maxlik.x.copy(), np.eye(len(initial))*0.001, n_samples=5000, )
     samples[:,2:] = np.exp(samples[:,2:])
     samples = samples[1000:]
     return samples

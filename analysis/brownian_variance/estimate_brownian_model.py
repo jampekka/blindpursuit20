@@ -73,7 +73,7 @@ def sample_brownian_model_params(trials):
     mangler = numba.njit(mangler)
     maxlik = scipy.optimize.minimize(lambda x: -mangler(x), np.array(initial))
     
-    samples = adaptive_metropolis(mangler, maxlik.x.copy(), np.eye(len(initial))*0.001, n_samples=5000, )
+    samples = adaptive_metropolis(mangler, maxlik.x.copy(), np.eye(len(initial))*0.001, n_samples=2000, )
     samples[:,2:] = np.exp(samples[:,2:])
     samples = samples[1000:]
     return samples

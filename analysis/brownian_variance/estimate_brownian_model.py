@@ -25,7 +25,12 @@ def trial_loglikelihood(trial, m_0, m_t, v_0, v_t, v_n):
         v_pred = v + v_t*dt
         z_lik = normlogpdf(z, m_pred, v_pred + v_n)
         total += z_lik
-        K = (1/v_n)/(1/v_n + 1/v_pred)
+        if v_n == 0:
+            K = 1.0
+        elif v_pred == 0:
+            K = 0.0
+        else:
+            K = (1/v_n)/(1/v_n + 1/v_pred)
         m = K*z + (1 - K)*m_pred
         v = K**2*v_n + (1 - K)**2*v_pred
     
@@ -40,8 +45,9 @@ def estimate_brownian_model(trials):
     @jit
     def loglikelihood(m_0, m_t, v_0, v_t, v_n):
         total = 0.0
-
-        for trial in trials:
+        
+        for trial_i in numba.prange(len(trials)):
+            trial = trials[trial_i]
             total += trial_loglikelihood(trial, m_0, m_t, v_0, v_t, v_n)
         return total
 
@@ -55,14 +61,15 @@ def estimate_brownian_model(trials):
     return m_0, m_t, v_0, v_t, v_n
 
 
-def sample_brownian_model_params(trials):
+def sample_brownian_model_params(trials, n_samples=2000, n_tune=1000):
     from adametro import adaptive_metropolis
     trials = tuple(trials) # Required for numba
     @jit
     def loglikelihood(params):
         m_0, m_t, v_0, v_t, v_n = params
         total = 0.0
-        for trial in trials:
+        for trial_i in numba.prange(len(trials)):
+            trial = trials[trial_i]
             total += trial_loglikelihood(trial, m_0, m_t, v_0, v_t, v_n)
 
         return total
@@ -70,12 +77,14 @@ def sample_brownian_model_params(trials):
     initial = [0.0, 0.0, np.log(1.0), np.log(1.0), np.log(1.0)]
 
     mangler = lambda x: loglikelihood(np.concatenate((x[:2], np.exp(x[2:]))))
-    mangler = numba.njit(mangler)
+    mangler = jit(mangler)
     maxlik = scipy.optimize.minimize(lambda x: -mangler(x), np.array(initial))
     
-    samples = adaptive_metropolis(mangler, maxlik.x.copy(), np.eye(len(initial))*0.001, n_samples=2000, )
+    # TODO: This occasionally throws ZeroDivisionError. I'm not sure why
+    samples = adaptive_metropolis(mangler, maxlik.x.copy(), np.eye(len(initial))*0.001,
+            n_samples=(n_samples + n_tune))
+    samples = samples[n_tune:]
     samples[:,2:] = np.exp(samples[:,2:])
-    samples = samples[1000:]
     return samples
 
 

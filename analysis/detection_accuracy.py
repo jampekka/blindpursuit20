@@ -4,6 +4,10 @@ import scipy.special
 import scipy.optimize
 import matplotlib.pyplot as plt
 
+HORIZONTAL_FOV = 80
+HORIZONTAL_PIX = 1920
+DEGREES_PER_PIX = HORIZONTAL_FOV/HORIZONTAL_PIX
+
 def get_detection_data():
     data = pd.read_parquet('../preprocessing/gaze_and_target.parquet')
 
@@ -38,8 +42,12 @@ def get_detection_data():
         detections.append(row)
         
     dets = pd.DataFrame.from_records(detections)
-    screen_extent = np.array([1920, 1080]).reshape(1, -1)
+    pixcols = ['target_x', 'target_y', 'gaze_screen_x', 'gaze_screen_y']
+    dets[pixcols] = dets[pixcols]*DEGREES_PER_PIX
+    screen_extent = np.array([1920, 1080]).reshape(1, -1)*DEGREES_PER_PIX
+
     dets['target_radius'] = np.linalg.norm(dets[['target_x', 'target_y']].values - screen_extent/2, axis=1)
+    print(dets.query("scenario == 'swing'").target_radius.mean())
     dets['target_gaze_distance'] = np.linalg.norm(dets[['target_x', 'target_y']].values - dets[['gaze_screen_x', 'gaze_screen_y']].values, axis=1)
 
     return dets
@@ -112,7 +120,7 @@ def fit_detection_data():
 
     total = 0.0
     
-    rng = np.linspace(0, 1000, 100)[1:]
+    rng = np.linspace(0, 20, 100)[1:]
 
     for part, partdets in dets.groupby("participant_id"):
         x = (partdets.target_gaze_distance.values)
@@ -125,8 +133,8 @@ def fit_detection_data():
     print("Total logpdf", total)
     plt.axhline(1/4, color='black', linestyle='dashed')
     plt.legend()
-    plt.ylabel("Detection probability")
-    plt.xlabel("Gaze error (pixels)")
+    plt.ylabel("Success probability")
+    plt.xlabel("Gaze error (degrees)")
     plt.show()
 
 if __name__ == '__main__':

@@ -2,7 +2,7 @@ import pandas as pd
 import numpy as np
 from scipy.interpolate import interp1d
 import scipy.ndimage
-import nslr_hmm
+#import nslr_hmm
 
 
 dfr = pd.read_parquet('preprocessing/gaze_and_target.parquet')
@@ -28,7 +28,6 @@ badonest = scipy.ndimage.morphology.binary_dilation(badonest, iterations=5)
 dfr.loc[badonest,['target_x', 'target_y']] = np.nan
 
 
-
 def segment_hmm(df):
 
     # remove duplicated timestamps
@@ -37,6 +36,12 @@ def segment_hmm(df):
     # remove NANs from gaze
     df = df[~((df.gazeX.isnull()) | (df.gazeY.isnull()))]
     
+    degs_per_pix = 80/1920
+    df['target_x'] -= 1920/2; df['target_x'] *= degs_per_pix
+    df['gazeX'] -= 1920/2; df['gazeX'] *= degs_per_pix
+    df['target_y'] -= 1080/2; df['target_y'] *= degs_per_pix
+    df['gazeY'] -= 1080/2; df['gazeY'] *= degs_per_pix
+   
 
       # HMM    
     sample_class, segmentation, seg_class = nslr_hmm.classify_gaze(df.ts.values, df[['gazeX', 'gazeY']].values,
@@ -48,7 +53,12 @@ def segment_hmm(df):
     gaze_interp = interp1d(segmentation.t, segmentation.x, axis=0, bounds_error=False)
     df['gazeX_s'], df['gazeY_s'] = gaze_interp(df.ts).T.copy()
 
-        
+    ts_times = []
+    for seg in segmentation.segments:
+         ts_times.append(seg.t[0])
+    
+    match = np.array(ts_times).searchsorted(df.ts.values) - 1
+    df['segment_class_2'] = seg_class[match]
     
     times = []
     xcoords = []
@@ -88,7 +98,6 @@ def segment_hmm(df):
     return df
 
 
-
 segmented_df = dfr.reset_index(drop=True).groupby('participant').apply(segment_hmm)
 
 #segmented_df.to_pickle('segment_data_all.pickle')
@@ -99,7 +108,11 @@ segmented_df_circ = segmented_df[segmented_df.scenario == "swing"]
 #segmented data to R
 segmented_df_circ.reset_index(drop=True).to_feather('data/segments.feather')
 
+segmented_df_circ.reset_index(drop=True).to_feather('data/segments_comp.feather', compression = "zstd")
 
 
+#segmented_df_circ = pd.read_feather('data/segments.feather')
+##segmented_df_circ.to_pickle('data/segments.pickle')
+#segmented_df_circ.to_pickle('data/segment_data_circle.pickle')
 
         

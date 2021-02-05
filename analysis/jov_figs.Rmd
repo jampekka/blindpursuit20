@@ -85,10 +85,24 @@ axis.line = element_line(size = 0.7, color = "black"), legend.position = c(0.85,
 ```{r}
 plot_trial <- function(sbj, trialn) {
 
-isochronic_lines <- df_trials %>%
+  #isochronic lines at the ends of segments
+isochronic_ts <- df_trials %>%
     filter(participant == sbj, trial_number == trialn) %>%
+    group_by(data.table::rleid(seg_fill)) %>%
+    filter(ts == max(ts)) %>% 
+    ungroup %>% pull(ts)
+
+# 
+# df_trials %>%
+#     filter(participant == sbj, trial_number == trialn, ts <= isochronic_ts[3]) %>% tail(110) %>% head(1) %>% pull(ts)
+
+# can't see number 3 and 9 -> adjust. make sure this is visible!!
+isochronic_ts[3] <- isochronic_ts[3] - 0.4613226
+
+
+df_trials %>%
     mutate(across(c(target_x, target_y, gazeX_s, gazeY_s), .names = "{col}_segm")) %>%
-    slice(seq(1, n(), 100)) %>%
+    filter(round(ts,3) %in% round(isochronic_ts[1:8],3)) %>%
     select(ends_with("segm")) %>%
     rename(gaze_x_segm = gazeX_s_segm, gaze_y_segm = gazeY_s_segm) %>%
     rownames_to_column() %>%
@@ -96,6 +110,9 @@ isochronic_lines <- df_trials %>%
     separate(var, into = c("var", "coord"), extra = "drop") %>%
     spread(coord, value) %>%
     arrange(rowname, desc(var)) 
+
+
+
   
 curve_df <- df_trials %>%
   filter(participant == sbj, trial_number == trialn) %>%
@@ -145,73 +162,85 @@ circ_trials <- df_trials %>%
 # dev.off()
 
 
-plot_trial(8, 412)
-plot_trial(8, 425)
-plot_trial(8, 430)
+#plot_trial(8, 412)
+#plot_trial(8, 425)
+#plot_trial(8, 430)
+
 
 
 ```
 
 ```{r}
-#p8, t430
-plot_trial(8, 430)
+plot_trial(8, 393)
+
 ```
 
 
 ### 1b. phase-radius, saccades + pursuits
 ```{r}
-plot_segm <- function(sbj, trialn) {
+plot_segm_phaserad <- function(sbj, trialn) {
   
 
-  rects <- df_trials %>%
-    filter(participant == sbj, trial_number == trialn) %>%
-    arrange(trial_ts) %>%
-    group_by(trial_number, target_class) %>%
-    summarise(xmin = min(trial_ts),
-              xmax = max(trial_ts)) %>%
-    ungroup %>%
-    mutate(ymin = -20, ymax = 20)
+  # rects <- df_trials %>%
+  #   filter(participant == sbj, trial_number == trialn) %>%
+  #   arrange(trial_ts) %>%
+  #   group_by(trial_number, target_class) %>%
+  #   summarise(xmin = min(trial_ts),
+  #             xmax = max(trial_ts)) %>%
+  #   ungroup %>%
+  #   mutate(ymin = -20, ymax = 20)
   
-    title <- paste0("Participant ", sbj, ", trial ", trialn)
   
     trialdur <- df_trials %>%
     filter(participant == sbj, trial_number == trialn) %>%
       summarise(trial_duration = max(trial_ts)) %>%
       pull(trial_duration)
   
-  df_trials %>%
+  phase <- df_trials %>%
     filter(participant == sbj, trial_number == trialn) %>%
-    select(trial_ts, gazeX, gazeY, gazeX_s, gazeY_s, seg_fill, target_class) %>%
-    rename(segm_X = gazeX_s,
-           segm_Y = gazeY_s,
-           gaze_X = gazeX,
-           gaze_Y = gazeY) %>%
-    gather(var, value, gaze_X:segm_Y) %>%
-    separate(var, into = c("var", "coord")) %>%
-    spread(var, value) %>%
     ggplot() + 
-    geom_rect(data=rects, aes(xmin=xmin, ymin=ymin, xmax=xmax, ymax=ymax, 
-        fill=target_class, group=1), alpha = .4) +  
-    geom_path(aes(trial_ts, segm, color = seg_fill, group=1), alpha = .8) +
-    facet_grid(coord~., switch = "y") +
-    labs(title = title, colour = "",  y = "", x = "Time from trial start (s)") +
-    scale_y_continuous(limits = c(-20, 20)) +
+#    geom_rect(data=rects, aes(xmin=xmin, ymin=ymin, xmax=xmax, ymax=ymax, 
+#        fill=target_class, group=1), alpha = .4) +  
+    geom_path(aes(trial_ts, phase_diff_unwrap, group=1), alpha = .8) +
+    geom_path(aes(trial_ts, unwrap_gaze_phase_R, color = seg_fill, group=1), alpha = .8) +
+    geom_path(aes(trial_ts, unwrap_target_phase_R, color = target_class, group=1), alpha = .8) +
     theme_bw() +
     scale_color_manual(breaks=c(color_breaks, "isochronic lines"),
                        values = c(color_vals, "isochronic lines" = "orange"),
                      drop = F)  + 
     scale_fill_manual(color_breaks,
                        values = color_vals,
-                     drop = F) +
-    coord_fixed(ratio = .05)  + 
-#    guides(col = guide_legend(override.aes = list(shape = 15, size = 8))) +
-    theme(strip.placement = "outside", 
-          strip.background = element_blank())
+                     drop = F) 
+#    coord_fixed(ratio = .05)  + 
+#    guides(col = guide_legend(override.aes = list(shape = 15, size = 8))) 
+  
+    radius <- df_trials %>%
+    filter(participant == sbj, trial_number == trialn) %>%
+    ggplot() + 
+#    geom_rect(data=rects, aes(xmin=xmin, ymin=ymin, xmax=xmax, ymax=ymax, 
+#        fill=target_class, group=1), alpha = .4) +  
+    geom_path(aes(trial_ts, gaze_radius, color = seg_fill, group=1), alpha = .8) +
+    geom_path(aes(trial_ts, target_radius, color = target_class, group=1), alpha = .8) +
+    theme_bw() +
+    scale_y_continuous(limits = c(0, 27)) +
+    scale_color_manual(breaks=c(color_breaks, "isochronic lines"),
+                       values = c(color_vals, "isochronic lines" = "orange"),
+                     drop = F)  + 
+    scale_fill_manual(color_breaks,
+                       values = color_vals,
+                     drop = F) 
+#    coord_fixed(ratio = .05)  + 
+#    guides(col = guide_legend(override.aes = list(shape = 15, size = 8))) 
     
+    radius
+    phase
 }
 
 
-plot_segm(8, 430)
+phase
+radius
+
+plot_segm_phaserad(8, 393)
 ```
 
 

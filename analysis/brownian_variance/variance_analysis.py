@@ -3,6 +3,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from numpy.polynomial import Polynomial
 from scipy.interpolate import interp1d
+import sys
 
 data = pd.read_csv('../../data/saccades_hidden.csv')
 
@@ -31,12 +32,14 @@ def localregr(ts, xs, scale=1.0):
         return x, s
     return reg_and_std
 
-ts = np.linspace(0, 3, 100)
+ts = np.linspace(0, 3, 500)
 
 fig, (rax, pax) = plt.subplots(ncols=2, constrained_layout=True)
 pax.yaxis.tick_right()
 pax.yaxis.set_label_position("right")
 
+alls = []
+dump = []
 for part, sd in data.groupby('participant'):
     vals = []
     for tr, td in sd.groupby('trial_number'):
@@ -59,12 +62,17 @@ for part, sd in data.groupby('participant'):
     m = np.nanmean(vals, axis=0)
     s = np.nanstd(vals, axis=0)
     n = np.sum(np.isfinite(vals[:,:,0]), axis=0)
-    print(len(m))
     #ys = data.phase_diff_unwrap.values
     ys = data.radius_error.values
     #ms, ss = localregr(xs, ys, scale=0.2)(ts)
     valid = n > 5
+    vs = s.copy()
+    vs[~valid] = np.nan
+    alls.append(vs)
+
+    d = pd.DataFrame({'participant': part, 'ts': ts, 'n_valid': n, 'radius_std': s[:,0], 'phase_std': s[:,1], 'participant': part})
     
+    dump.append(d)
     rax.plot(ts[valid], s[valid,0], color=f"C{part}")
     rax.set_xlabel("Time hidden (seconds)")
     rax.set_ylabel("Radius error standard deviation (degrees)")
@@ -73,7 +81,16 @@ for part, sd in data.groupby('participant'):
     pax.plot(ts[valid], s[valid,1]/(2*np.pi), color=f"C{part}")
     pax.set_ylabel("Phase error standard deviation (turns)")
     pax.set_xlabel("Time hidden (seconds)")
+
+alls = np.array(alls)
+gm = np.nanmedian(alls, axis=0)
+rax.plot(ts, gm[:,0], color='black', lw=3)
+pax.plot(ts, gm[:,1]/(2*np.pi), color='black', lw=3)
 #plt.plot(xs, ys, 'k.')
 #plt.plot(ts, ms)
 #plt.plot(ts, ms + 2*ss)
+
+dump = pd.concat(dump)
+dump.to_csv(sys.stdout, index=False)
+
 plt.show()

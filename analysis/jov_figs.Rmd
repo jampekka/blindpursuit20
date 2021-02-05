@@ -1,0 +1,217 @@
+---
+title: "1st paper figures"
+output: html_notebook
+---
+
+```{r setup}
+library(ggpubr)
+library(pastecs)
+library(zoo)
+library(ggsci)
+library(RColorBrewer)
+library(viridisLite)
+library(tidyverse)
+
+df_trials <- readRDS('df_trials.RDS')
+seg_data <- readRDS('saccade_pursuit_full.rds')
+int_data <- readRDS('saccade_pursuit_int.rds')
+trial_saccades <- readRDS('trial_saccades.rds')
+
+```
+
+
+Use the Helvetica font.  
+Use approximately 10-point type for axis numbers, and 12-point type for axis labels.  
+The type should be about the size of type in the body text, when the figure is created at the desired size.  
+Do not use boldface.  
+Do not use too wide a range of font sizes (less than a range of 8 points).  
+Do not use 3D shapes for 2D data.  
+Do not use bar charts when line graphs will do.  
+Do not place a title at the top of the figure; this should go in the figure caption.  
+Do not draw lines or shadows around the outside of the figure.  
+Use color to distinguish data series, or for other useful didactic purposes, but not for decoration.  
+Capitalize the first letter of the first word in the axis labels. 
+If the axis labels include units, place them in parentheses.  
+Avoid repeating axis labels in multi-panel figures.  
+
+```{r plot_specs}
+# colors 
+# separate colors for: 
+# 1. participants: (d3 palette (10/20) OR) viridis default palette
+
+
+# 2. gaze: saccade/pursuit: a pair from d3-10
+
+# 3. object: hidden/visible/target: a triplet from d3-10/20
+
+scales::show_col(pal_d3("category10")(10))
+scales::show_col(pal_d3("category20")(20))
+
+show_col(viridis_pal()(30))
+show_col(viridis_pal(direction = -1)(10))
+
+scales::show_col(pal_npg("nrc")(9))
+scales::show_col(pal_lancet("lanonc")(10))
+
+display.brewer.all(colorblindFriendly = TRUE)
+
+# # change these
+
+color_vals <- c( # actual colors used in the plot
+                                "saccade" = "red",
+                                "pursuit" = "darkgreen",
+                                "target" = "blue",
+                                "visible" = "deepskyblue",
+                                "hidden" = "darksalmon",
+                                # placeholder values for legend titles
+                                " " = "white")
+#
+color_breaks <- c("saccade", "pursuit", " ", "target","visible","hidden")
+
+# other specs
+
+jov_theme = theme_bw(base_size = 12, #base_family = "Helvetica"
+                     ) + 
+  theme(panel.grid.major = element_line(size = 0.5, color = "grey"),
+axis.line = element_line(size = 0.7, color = "black"), legend.position = c(0.85,
+0.7), text = element_text(size = 14))
+
+```
+
+## 1 Illustrative time series
+
+### 1a. screen x-y, saccades + pursuits
+
+```{r}
+plot_trial <- function(sbj, trialn) {
+
+isochronic_lines <- df_trials %>%
+    filter(participant == sbj, trial_number == trialn) %>%
+    mutate(across(c(target_x, target_y, gazeX_s, gazeY_s), .names = "{col}_segm")) %>%
+    slice(seq(1, n(), 100)) %>%
+    select(ends_with("segm")) %>%
+    rename(gaze_x_segm = gazeX_s_segm, gaze_y_segm = gazeY_s_segm) %>%
+    rownames_to_column() %>%
+    gather(var, value, -rowname) %>%
+    separate(var, into = c("var", "coord"), extra = "drop") %>%
+    spread(coord, value) %>%
+    arrange(rowname, desc(var)) 
+  
+curve_df <- df_trials %>%
+  filter(participant == sbj, trial_number == trialn) %>%
+  slice(1:45)
+
+df_trials %>%
+    filter(participant == sbj, trial_number == trialn) %>%
+    ggplot() + 
+    geom_path(aes(target_x, target_y, color = target_class, group=1), 
+              alpha = .4, show.legend = F, size =1) +
+    geom_line(data = isochronic_lines, aes(x, y, group = rowname, 
+                                           color = "isochronic lines"), 
+              linetype = "dashed", inherit.aes = F) +
+    geom_path(aes(gazeX_s, gazeY_s, color = seg_fill, group=1), 
+              alpha = 1, inherit.aes = F, size = 1) +
+    geom_point(aes(0, 0, color = " "), alpha = 0) +
+#    geom_curve(aes(x = target_x1 + 2, y = target_y1, 
+#                   xend = target_x2 + 2, yend = target_y2), data = curve_df, 
+#                   curvature = -0.15) +
+    geom_path(aes(target_x + 2, target_y), data = curve_df) +
+    geom_segment(aes(x=curve_df$target_x[nrow(curve_df)-1] +2, xend=curve_df$target_x[nrow(curve_df)] +2, 
+                     y=curve_df$target_y[nrow(curve_df)-1], yend=curve_df$target_y[nrow(curve_df)]), 
+                           arrow = arrow(length = unit(0.5, "cm"))) +
+    labs(colour = "", x = "X (degrees)", y = "Y (degrees)") +
+    coord_fixed() +
+    theme_bw()  +
+    scale_y_continuous(limits = c(-16, 16)) +
+    scale_x_continuous(limits = c(-16, 16)) +
+    scale_color_manual(breaks=c(color_breaks, "isochronic lines"),
+                       values = c(color_vals, "isochronic lines" = "black"),
+                     drop = F)
+
+}
+
+# a trial with occlusion, saccades & pursuits; less than one full circle (for clarity); phase/radius offset (for illustration)
+
+circ_trials <- df_trials %>%
+  filter(trial_type == "occluded_trial") %>%
+  group_by(participant, trial_number) %>%
+  filter(between(max(ts) - min(ts), 2.5, 3.5)) %>%
+  distinct(participant, trial_number)
+
+# t <- mapply(plot_trial, circ_trials$participant, circ_trials$trial_number, SIMPLIFY = F)
+# 
+# pdf("circle_plots_temp.pdf", width = 12, height = 12)
+# invisible(lapply(t, print))
+# dev.off()
+
+
+plot_trial(8, 412)
+plot_trial(8, 425)
+plot_trial(8, 430)
+
+
+```
+
+```{r}
+#p8, t430
+plot_trial(8, 430)
+```
+
+
+### 1b. phase-radius, saccades + pursuits
+```{r}
+plot_segm <- function(sbj, trialn) {
+  
+
+  rects <- df_trials %>%
+    filter(participant == sbj, trial_number == trialn) %>%
+    arrange(trial_ts) %>%
+    group_by(trial_number, target_class) %>%
+    summarise(xmin = min(trial_ts),
+              xmax = max(trial_ts)) %>%
+    ungroup %>%
+    mutate(ymin = -20, ymax = 20)
+  
+    title <- paste0("Participant ", sbj, ", trial ", trialn)
+  
+    trialdur <- df_trials %>%
+    filter(participant == sbj, trial_number == trialn) %>%
+      summarise(trial_duration = max(trial_ts)) %>%
+      pull(trial_duration)
+  
+  df_trials %>%
+    filter(participant == sbj, trial_number == trialn) %>%
+    select(trial_ts, gazeX, gazeY, gazeX_s, gazeY_s, seg_fill, target_class) %>%
+    rename(segm_X = gazeX_s,
+           segm_Y = gazeY_s,
+           gaze_X = gazeX,
+           gaze_Y = gazeY) %>%
+    gather(var, value, gaze_X:segm_Y) %>%
+    separate(var, into = c("var", "coord")) %>%
+    spread(var, value) %>%
+    ggplot() + 
+    geom_rect(data=rects, aes(xmin=xmin, ymin=ymin, xmax=xmax, ymax=ymax, 
+        fill=target_class, group=1), alpha = .4) +  
+    geom_path(aes(trial_ts, segm, color = seg_fill, group=1), alpha = .8) +
+    facet_grid(coord~., switch = "y") +
+    labs(title = title, colour = "",  y = "", x = "Time from trial start (s)") +
+    scale_y_continuous(limits = c(-20, 20)) +
+    theme_bw() +
+    scale_color_manual(breaks=c(color_breaks, "isochronic lines"),
+                       values = c(color_vals, "isochronic lines" = "orange"),
+                     drop = F)  + 
+    scale_fill_manual(color_breaks,
+                       values = color_vals,
+                     drop = F) +
+    coord_fixed(ratio = .05)  + 
+#    guides(col = guide_legend(override.aes = list(shape = 15, size = 8))) +
+    theme(strip.placement = "outside", 
+          strip.background = element_blank())
+    
+}
+
+
+plot_segm(8, 430)
+```
+
+

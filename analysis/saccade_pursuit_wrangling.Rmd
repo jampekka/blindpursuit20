@@ -1,0 +1,151 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+Data wrangling for paperfigs
+
+```{r}
+df_trials <- readRDS('df_trials.RDS')
+saccades <- readRDS('saccades.RDS')
+```
+
+
+```{r wr_functions}
+
+get_seg_data <- function(segtype) {
+
+seg_timeseries <- df_trials %>%
+  filter(trial_type == "occluded_trial", target_class %in% c("visible", "hidden")) %>%
+  select(participant, trial_number, ts, target_class, seg_fill, unwrap_gaze_phase_R, unwrap_target_phase_R,
+         gazeX_s, gazeY_s) %>%
+  group_by(participant) %>%
+  arrange(participant, ts) %>%
+  mutate(seg_index = data.table::rleid(seg_fill)) %>%
+  group_by(participant, trial_number, target_class) %>%
+  mutate(cond_ts = ts - min(ts)) %>%
+  group_by(participant,trial_number) %>%
+  mutate(trial_ts = ts - min(ts)) %>%
+  filter(seg_fill == segtype) %>% # ARGUMENT HERE "pursuit", "saccade"
+  select(-seg_fill, -ts) %>%
+  ungroup
+
+  
+
+segtimes_full <- seg_timeseries %>%
+  group_by(participant, trial_number, target_class, seg_index) %>%
+  arrange(participant, trial_number, target_class, seg_index, cond_ts) %>%
+  summarise(seg_dur = max(cond_ts) - min(cond_ts),
+            cond_ts = max(cond_ts),
+            trial_ts = max(trial_ts),
+            dist = sqrt((last(gazeX_s) - first(gazeX_s))^2 + (last(gazeY_s) - first(gazeY_s))^2),
+            phasedist = last(unwrap_gaze_phase_R) - first(unwrap_gaze_phase_R),
+            phase_speed = phasedist/seg_dur) %>%
+  mutate(cumulative_phasedist = cumsum(phasedist),
+         target_phasedist = (cond_ts) * (pi/2),
+         cumulative_dur = cumsum(seg_dur)) %>%
+  ungroup 
+
+
+  segtimes_full
+
+}
+
+#############################
+
+get_zero_phases <- function(data_segtype) { # pursuittimes_full or saccadetimes_full
+  
+zero_phases <- data_segtype %>%
+  distinct(participant, target_class, trial_number) %>%
+  anti_join(data_segtype %>% filter(cond_ts == 0), by = c("participant", "target_class", "trial_number")) %>%
+  mutate(cond_ts = 0,
+         cumulative_phasedist = 0)
+
+cp_seg_zero <- data_segtype %>%
+  full_join(zero_phases, by = c("participant", "cond_ts", "trial_number", "target_class", "cumulative_phasedist")) %>%
+  arrange(participant, target_class, cond_ts) 
+
+cp_seg_zero
+}
+
+
+```
+
+```{r wr_apply}
+seg_data <- sapply(c("saccade", "pursuit"), get_seg_data, simplify = FALSE, USE.NAMES = TRUE)
+
+cphase_zeros <- sapply(seg_data, get_zero_phases, simplify = FALSE, USE.NAMES = TRUE)
+
+```
+
+```{r wr_combine}
+# combine data
+
+pursuit_int <- cphase_zeros$pursuit %>%
+  group_by(participant, trial_number, target_class) %>%
+  arrange(participant, trial_number, target_class, cond_ts) %>% 
+  group_modify(~reglin(.x$cond_ts, .x$cumulative_phasedist, xmin = 0, deltat = 1/60, n = 180, rule=1) %>% data.frame) %>%
+  ungroup %>%
+  filter(!is.na(y)) %>%
+  rename(cond_ts = x, cumulative_phasedist = y)  
+
+saccade_int <- cphase_zeros$saccade %>%
+  group_by(participant, trial_number, target_class) %>% 
+  filter(max(cumulative_phasedist) != 0) %>% # need to remove 0-saccade trials
+  arrange(participant, trial_number, target_class, cond_ts) %>%
+  group_modify(~reglin(.x$cond_ts, .x$cumulative_phasedist, xmin = 0, deltat = 1/60, n = 180, rule=1) %>% data.frame) %>%
+  ungroup %>%
+  filter(!is.na(y)) %>%
+  rename(cond_ts = x, cumulative_phasedist = y)
+
+int_data <- saccade_int %>%
+  mutate(seg = "saccade") %>%
+  rbind(pursuit_int %>% mutate(seg = "pursuit")) %>%
+  group_by(participant, target_class, trial_number) %>%
+  complete(cond_ts, seg) %>% # add cumulative counts to cover whole trial
+  arrange(participant, trial_number, target_class, seg, cond_ts) %>%
+  group_by(participant, trial_number, target_class, seg) %>%
+  fill(cumulative_phasedist) %>%
+ # mutate(cumulative_phasedist = if_else(is.na(cumulative_phasedist), lag(cumulative_phasedist), cumulative_phasedist)) %>%
+  group_by(participant, target_class, trial_number, cond_ts) %>%
+  mutate(total_cphasedist = sum(cumulative_phasedist)) %>%
+  ungroup 
+```
+
+
+```{r wr_trial}
+
+# trial-level saccades
+df_dur <- df_trials %>%
+  filter(signtype == "cue", trial_type == "occluded_trial", 
+         target_class %in% c("visible", "hidden")) %>%
+  spread(target_class, ts) %>%
+  group_by(participant, trial_number) %>%
+  summarise(visible = max(visible, na.rm=T) - min(visible, na.rm=T),
+            hidden = max(hidden, na.rm=T) - min(hidden, na.rm=T)) %>%
+  ungroup %>%
+  pivot_longer(cols = c("visible", "hidden"),
+               names_to = "target_class",
+               values_to = "duration") %>%
+  filter(!is.infinite(duration))
+
+trial_saccades <- seg_data$saccade %>%
+  group_by(participant, trial_number, target_class) %>%
+  summarise(saccades = n_distinct(seg_index),
+            median_dist = median(dist),
+            median_phasedist = median(phasedist),
+            total_phasedist = sum(phasedist),
+            total_saccade_dur = sum(seg_dur)) %>%
+  ungroup %>%
+  left_join(df_dur, by = c("participant", "trial_number", "target_class")) %>%
+  mutate(freq = saccades/duration,
+         target_phasedist = duration * (pi/2))
+```
+
+```{r savedata}
+
+saveRDS(seg_data, 'saccade_pursuit_full.rds')
+saveRDS(int_data, 'saccade_pursuit_int.rds')
+saveRDS(trial_saccades, 'trial_saccades.rds')
+
+```

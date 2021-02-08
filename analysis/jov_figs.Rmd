@@ -78,6 +78,20 @@ axis.line = element_line(size = 0.7, color = "black"), legend.position = c(0.85,
 
 ```
 
+```{r}
+
+#PHASE FORMATTER (radians -> turns)
+
+formatterphase <- function(x){ 
+    x / (2*pi)
+}
+
+# add this to plot
+ scale_y_continuous(labels = formatterphase, breaks = seq(-.75, .25, by = .25)*2*pi)
+  
+```
+
+
 ## 1 Illustrative time series
 
 ### 1a. screen x-y, saccades + pursuits
@@ -90,19 +104,17 @@ isochronic_ts <- df_trials %>%
     filter(participant == sbj, trial_number == trialn) %>%
     group_by(data.table::rleid(seg_fill)) %>%
     filter(ts == max(ts)) %>% 
-    ungroup %>% pull(ts)
+    ungroup %>% pull(trial_ts)
 
-# 
-# df_trials %>%
-#     filter(participant == sbj, trial_number == trialn, ts <= isochronic_ts[3]) %>% tail(110) %>% head(1) %>% pull(ts)
 
 # can't see number 3 and 9 -> adjust. make sure this is visible!!
-isochronic_ts[3] <- isochronic_ts[3] - 0.4613226
+isochronic_ts[3] <- isochronic_ts[3] - 0.04198366 #0.461927 # 1.298052 # 1.717995201
 
 
-df_trials %>%
+isochronic_lines <- df_trials %>%
+   filter(participant == sbj, trial_number == trialn) %>%
     mutate(across(c(target_x, target_y, gazeX_s, gazeY_s), .names = "{col}_segm")) %>%
-    filter(round(ts,3) %in% round(isochronic_ts[1:8],3)) %>%
+    filter(round(trial_ts,6) %in% round(isochronic_ts[1:8],6)) %>%
     select(ends_with("segm")) %>%
     rename(gaze_x_segm = gazeX_s_segm, gaze_y_segm = gazeY_s_segm) %>%
     rownames_to_column() %>%
@@ -132,9 +144,9 @@ df_trials %>%
 #    geom_curve(aes(x = target_x1 + 2, y = target_y1, 
 #                   xend = target_x2 + 2, yend = target_y2), data = curve_df, 
 #                   curvature = -0.15) +
-    geom_path(aes(target_x + 2, target_y), data = curve_df) +
-    geom_segment(aes(x=curve_df$target_x[nrow(curve_df)-1] +2, xend=curve_df$target_x[nrow(curve_df)] +2, 
-                     y=curve_df$target_y[nrow(curve_df)-1], yend=curve_df$target_y[nrow(curve_df)]), 
+    geom_path(aes(target_x, target_y - 2), data = curve_df) +
+    geom_segment(aes(x=curve_df$target_x[nrow(curve_df)-1], xend=curve_df$target_x[nrow(curve_df)], 
+                     y=curve_df$target_y[nrow(curve_df)-1] - 2, yend=curve_df$target_y[nrow(curve_df)] - 2), 
                            arrow = arrow(length = unit(0.5, "cm"))) +
     labs(colour = "", x = "X (degrees)", y = "Y (degrees)") +
     coord_fixed() +
@@ -210,7 +222,9 @@ plot_segm_phaserad <- function(sbj, trialn) {
                      drop = F)  + 
     scale_fill_manual(color_breaks,
                        values = color_vals,
-                     drop = F) 
+                     drop = F)  + 
+  scale_y_continuous(labels = formatterphase, breaks = seq(-.75, .25, by = .25)*2*pi)
+
 #    coord_fixed(ratio = .05)  + 
 #    guides(col = guide_legend(override.aes = list(shape = 15, size = 8))) 
   
@@ -243,4 +257,181 @@ radius
 plot_segm_phaserad(8, 393)
 ```
 
+### 2 time series of euclidean, phase and radius offset
+
+
+
+
+```{r}
+# linear interpolation for regular timestamps
+
+ts <- df_trials %>%
+  filter(trial_type == "occluded_trial") %>%
+  mutate(gt_abs_dist = sqrt((gazeX_s - target_x)^2 + (gazeY_s - target_y)^2)) %>%
+  group_by(participant, trial_number) %>%
+  mutate(occl_start = ifelse(occl_ts == 0, trial_ts, NA_real_)) %>%
+  mutate(occl_ts2 = trial_ts - max(occl_start, na.rm=T)) %>% 
+  ungroup %>%
+  select(participant, trial_number, occl_ts2, gt_abs_dist, phase_diff_unwrap, radius_diff)
+
+# set common starting ts for all trials. then use reglin on each participant+trial. then remove NAs 
+ts_interp <- ts %>%
+  group_by(participant, trial_number) %>%
+  group_modify(~reglin(.x$occl_ts2, .x$gt_abs_dist, xmin = min(ts$occl_ts2), deltat = 1/60, rule=1) %>% data.frame) %>%
+  ungroup %>%
+  filter(!is.na(y)) %>%
+  rename(occl_ts2 = x, gt_abs_dist = y)
+
+
+
+# calculate references: 1. if gaze is stuck at disappearance point, 2. middle of screen, 3. tangent of disappearance point
+refdata <- df_trials %>%
+  filter(trial_type == "occluded_trial", participant == 4, trial_number == 326, !is.na(occl_ts)) %>% # pick trial with max occlusion
+  mutate(gaze_start_x = if_else(occl_ts == 0, target_x, NA_real_),
+         gaze_start_y = if_else(occl_ts == 0, target_y, NA_real_),
+         vel_start = if_else(occl_ts == 0, lead(target_y) - target_y, NA_real_),
+         slope_start = if_else(occl_ts == 0, 
+                               ((target_y - lag(target_y)) / (target_x - lag(target_x))) %>% lead, 
+                               NA_real_)) %>%
+  fill(slope_start) %>%
+  fill(gaze_start_y) %>%
+  fill(gaze_start_x) %>%
+  fill(vel_start) %>%
+  mutate(gaze_start_phase = if_else(occl_ts == 0, unwrap_target_phase_R, NA_real_),
+         gaze_start_radius = if_else(occl_ts == 0, target_radius, NA_real_)) %>%
+  fill(gaze_start_phase, gaze_start_radius) %>%
+  mutate(ic = gaze_start_y - slope_start * gaze_start_x) %>%
+  mutate(vel_coef = 1/(1 + exp(seq(-5, 0, length.out = n())))) %>% # velocity coefficient to create velocity decay (sigmoid shape 1/(1 + exp(x)) for x -5...0)
+  mutate(#yd = (abs(lag(target_y) - target_y)*vel_coef) %>% lead,
+         yd = abs(vel_start)*vel_coef,      
+         tangent_y = (gaze_start_y + cumsum(yd)) %>% lag) %>% # y continues to grow; note velocity coefficient
+  mutate(tangent_x = -(ic - tangent_y) / (slope_start))  # find x values of tangent
+
+
+refdata %>%
+  ggplot(aes(target_x, target_y)) + geom_path() +
+  geom_path(aes(tangent_x, tangent_y))
+
+refdata %>%
+  gather(var, value, tangent_x, tangent_y) %>%
+  ggplot(aes(trial_ts, value, color = var)) + geom_line()
+
+ 
+reflines <- refdata %>%
+   mutate(dis_magn = sqrt((gaze_start_x - target_x)^2 + (gaze_start_y - target_y)^2),
+          cen_magn = sqrt((0 - target_x)^2 + (0 - target_y)^2),
+          tan_magn = sqrt((tangent_x - target_x)^2 + (tangent_y - target_y)^2)) %>%
+  mutate(dis_phase = gaze_start_phase - unwrap_target_phase_R,
+         tan_phase = atan2(tangent_x, tangent_y) + 2*pi - unwrap_target_phase_R,
+       #  dis_radius = gaze_start_radius - target_radius,
+       #  cen_radius = 0 - target_radius,
+         tan_radius = sqrt((tangent_x)^2 + (tangent_y)^2) - target_radius)
+
+reflines_magn <- reflines %>%
+  select(occl_ts, ends_with("_magn")) %>%
+  gather(refline, value, -occl_ts) %>%
+  mutate(refline = recode(refline, dis_magn = "Disappearance point", cen_magn = "Center",
+                          tan_magn = "Tangent"))
+
+
+# first take MEDIAN for each timestamp (instead of geometric mean, due to hassle with negative values)
+# rolling mean 
+
+ts_interp %>%
+  group_by(participant, occl_ts2) %>%
+  summarise(gt_abs_dist = median(gt_abs_dist)) %>%
+  group_by(participant) %>%
+  arrange(participant, occl_ts2) %>%
+  mutate(GM = rollmean(gt_abs_dist, k=25, fill=NA, align="center")) %>% 
+  ungroup %>%
+  filter(!is.na(GM)) %>%
+    ggplot(aes(occl_ts2, GM)) +  geom_line(aes(color = participant), size = 1, alpha = .8) +
+  theme_bw() +
+  geom_vline(xintercept = 0, alpha = .3) +
+  geom_line(data = reflines_magn, aes(occl_ts, value, linetype = refline %>% fct_rev)) +
+  labs(x = "Time (s)", y = "Angular difference", linetype = "Reference line", color = "Participant") +
+  scale_color_d3()
+
+```
+
+```{r}
+ts_interp_phase <- ts %>%
+  group_by(participant, trial_number) %>%
+  group_modify(~reglin(.x$occl_ts2, .x$phase_diff_unwrap, xmin = min(ts$occl_ts2), deltat = 1/60, rule=1) %>% data.frame) %>%
+  ungroup %>%
+  filter(!is.na(y)) %>%
+  rename(occl_ts2 = x, phase_diff_unwrap = y)
+
+
+reflines_phase <- reflines  %>%
+  select(occl_ts, dis_phase, tan_phase) %>%
+  gather(refline, value, -occl_ts) %>%
+  mutate(refline = recode(refline, dis_phase = "Disappearance point", 
+                          tan_phase = "Tangent"))
+
+
+ts_interp_phase %>%
+  group_by(participant, occl_ts2) %>%
+  summarise(phase_diff_unwrap = median(phase_diff_unwrap)) %>%
+  group_by(participant) %>%
+  arrange(participant, occl_ts2) %>%
+  mutate(GM = rollmean(phase_diff_unwrap, k=25, fill=NA, align="center")) %>%
+  ungroup %>%
+  filter(!is.na(GM)) %>%
+  ggplot(aes(occl_ts2, GM)) +  geom_line(aes(color = participant), size = 1, alpha = .8) +
+  theme_bw() +
+  geom_vline(xintercept = 0, alpha = .3) +
+  geom_line(data = reflines_phase, aes(occl_ts, value, linetype = refline %>% fct_rev)) +
+  labs(x = "Time (s)", y = "Phase difference (turns)", linetype = "Reference line", color = "Participant") +
+  scale_color_d3() + 
+  scale_y_continuous(labels = formatterphase, breaks = seq(-.75, .25, by = .25)*2*pi)
+
+
+```
+
+```{r}
+
+ts_interp_radius <- ts %>%
+  group_by(participant, trial_number) %>%
+  group_modify(~reglin(.x$occl_ts2, .x$radius_diff, xmin = min(ts$occl_ts2), deltat = 1/60, rule=1) %>% data.frame) %>%
+  ungroup %>%
+  filter(!is.na(y)) %>%
+  rename(occl_ts2 = x, radius_diff = y)
+
+
+reflines_radius <- reflines  %>%
+  select(occl_ts, tan_radius) %>%
+  gather(refline, value, -occl_ts) %>%
+  mutate(refline = recode(refline, tan_radius = "Tangent"))
+
+
+ts_interp_radius %>%
+  group_by(participant, occl_ts2) %>%
+  summarise(radius_diff = median(radius_diff)) %>%
+  group_by(participant) %>%
+  arrange(participant, occl_ts2) %>%
+  mutate(GM = rollmean(radius_diff, k=25, fill=NA, align="center")) %>%
+  ungroup %>%
+  filter(!is.na(GM)) %>%
+    ggplot(aes(occl_ts2, GM)) +  geom_line(aes(color = participant), size = 1, alpha = .8) +
+  theme_bw() +
+  geom_vline(xintercept = 0, alpha = .3) +
+  geom_line(data = reflines_radius, aes(occl_ts, value, linetype = refline %>% fct_rev)) +
+  labs(x = "Time (s)", y = "Radius difference", linetype = "Reference line", color = "Participant") +
+  scale_y_continuous(limits = c(-13.5, 13.5)) +
+  scale_color_d3()
+
+```
+
+# saccade latencies
+
+```{r}
+saccades %>%
+  filter(timept == "launch", first_saccade) %>%
+  ggplot(aes(x=occl_ts, y=..density..)) + geom_histogram(color = "black", fill = NA,
+                                                         boundary = 0, binwidth = .03) + 
+  theme_bw() +
+  labs(x = "Time hidden (s)", y = "Density")
+
+```
 

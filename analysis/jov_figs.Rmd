@@ -13,6 +13,7 @@ library(viridisLite)
 library(tidyverse)
 
 df_trials <- readRDS('df_trials.RDS')
+saccades <- readRDS('saccades.RDS')
 seg_data <- readRDS('saccade_pursuit_full.rds')
 int_data <- readRDS('saccade_pursuit_int.rds')
 trial_saccades <- readRDS('trial_saccades.rds')
@@ -437,6 +438,7 @@ saccades %>%
 
 # Phase pursuit gain
 
+
 ```{r}
 occlusion_starts <- df_trials %>%
   group_by(participant, trial_number) %>%
@@ -452,14 +454,183 @@ seg_data$pursuit %>%
   ggplot(aes(trial_ts - seg_dur, phase_speed / (pi/2), # beginning times of pursuit segments
              color = split_seg,
              group = interaction(participant, trial_number))) +
-  geom_point(alpha = .1, size = 1.5) +
+  geom_point(alpha = .1, size = 1.5, show.legend = F) +
   scale_y_continuous(limits = c(0, 2)) +
   labs(x = "Time (s)", y = "Phase gain") +
   theme_bw() +
   geom_vline(xintercept = 0, linetype = "dashed") +
-  scale_color_manual()
+  scale_color_manual(values = c("black", "darkred"))
 
+```
+
+# phase angle change over time
+
+```{r}
+int_data %>% 
+  arrange(participant, trial_number, target_class, cond_ts, seg)
+```
+
+
+```{r}
+
+plot_phase_int <- function(cond) {
+  
+# namelabel <- function(x) {
+#   paste0("participant ", x)
+# }
+
+p <-  int_data %>%
+  filter(target_class == cond) %>%
+  spread(seg, cumulative_phasedist) %>% 
+  mutate(saccade = ifelse(is.na(saccade), 0, saccade)) %>%
+  ggplot(aes(group = interaction(participant, trial_number))) +
+  geom_ribbon(aes(cond_ts, ymin = 0, ymax = pursuit, fill = "Pursuit"), alpha = .2) +
+  geom_ribbon(aes(cond_ts, ymin = pursuit, ymax = pursuit + saccade, fill = "Saccade"), alpha = .2)  +
+  geom_line(aes(cond_ts, total_cphasedist, group = interaction(participant, trial_number)), alpha = .2, inherit.aes = F) +
+  #            aes(cond_ts, cumulative_phasedist), alpha = .8) +
+  geom_line(aes(cond_ts, cond_ts * (pi/2)), linetype = "dashed", color = "white",
+            size=1, inherit.aes = F) +
+#  facet_wrap(~participant, labeller = labeller(participant = namelabel), ncol = 2)  +
+  labs(title = str_to_title(cond),
+       #subtitle = "Cumulative phase angle change by saccades/pursuits",
+       y = "Cumulative phase (turns)",
+       x = "Time (s)", color = "", fill = "") +
+#  geom_smooth(aes(cond_ts, cumulative_phasedist, color = seg), inherit.aes = F,
+#              method = "lm", se = F, linetype = "dashed") +
+  theme_bw() +
+  scale_fill_manual(values = c("Pursuit" = "#1F77B4FF", "Saccade" = "#FF7F0EFF")) +
+  scale_y_continuous(labels = formatterphase, breaks = seq(0, 2, by = .25)*2*pi, limits = c(0, 5)) +
+  scale_x_continuous(limits = c(0,3)) +
+  guides(fill = guide_legend(override.aes = list(alpha = 1))) 
+
+p
+}
+
+
+phaseplots <- lapply(c("visible", "hidden"), plot_phase_int)
+
+p <- ggarrange(plotlist = phaseplots, common.legend = T, ncol = 2, legend = "bottom") 
+
+p
 
 
 ```
+
+# saccade frequency & amplitude
+```{r}
+
+# reference line: if saccade amplitude is X, how many saccades per second are needed to cover the tracking (at a given pursuit gain)?
+# X = (2*radius^2 − amp^2) / (2*radius^2)
+# angle A = acos(X) radians
+
+# circle moves at pi/2 radians/s. therefore, with angle A, speed/A saccades are needed per second (for purely saccadic tracking).
+
+
+ref_freq <- function(amp, pg) { # pg = pursuit gain from 0 (pure saccadic) to 1 (pure pursuit)
+  radius = 13.5
+  obj_speed = pi/2
+  sacc_speed = obj_speed - (pg*obj_speed)
+  
+  X <- (2*radius^2 - amp^2) / (2*radius^2)
+  A <- acos(X)
+
+  # circle moves at 1.57 radians/s. therefore, with angle A, speed/A saccades are needed per second.
+  sacc_speed/A
+}
+
+```
+
+```{r}
+# get values for PG from observed amplitude & frequency data:
+
+trial_saccades %>%
+  mutate(ampX = (2*13.5^2 - median_dist^2) / (2*13.5^2),
+         ampA = acos(ampX)) %>%
+  mutate(sacc_speed = freq*ampA, # formulas derived from above: gaze_speed = freq*ampA
+         pg = ((pi/2) - sacc_speed)/(pi/2)) %>% #  pg = (obj_speed - sacc_speed)/(obj_speed)
+  group_by(target_class) %>%
+  summarise(median(pg, na.rm=T))
+
+# use median PG for each condition to plot reference lines
+amp_ref <- tibble(amp = seq(0.1, 15, .2), freq = ref_freq(amp, 0), freq_pg.4 = ref_freq(amp, .46),
+                  freq_pg.9 = ref_freq(amp, .9))
+         
+```
+
+NOTE: PG in hidden is probably higher because of the first ~0.5 s included.
+
+```{r}
+trial_saccades %>%
+  group_by(participant, target_class) %>%
+  mutate(freq_part = median(freq),
+         dist_part = median(median_dist)) %>%
+  ggplot(aes(freq, median_dist, color = target_class %>% fct_rev)) + 
+  geom_point(alpha = .3)  +
+  geom_point(aes(freq_part, dist_part, fill = target_class %>% fct_rev), 
+             color = "black", size = 2, shape = 21, show.legend = F) +
+  geom_line(aes(freq_part, dist_part, group = participant), inherit.aes = F, alpha = .3) +
+  geom_line(aes(freq_pg.4, amp), inherit.aes = F, data = amp_ref) +
+  geom_line(aes(freq_pg.9, amp), inherit.aes = F, data = amp_ref) +
+  geom_text(aes(x = .1, y = 15.5), label = "PG .90", inherit.aes = F) +
+  geom_text(aes(x = 1, y = 15.5), label = "PG .46", inherit.aes = F) +
+  theme_bw() +
+#  scale_color_manual(values = color_vals) +
+#  scale_fill_manual(values = color_vals) +
+  guides(color = guide_legend(override.aes = list(alpha = 1, size = 3))) +
+  scale_y_continuous(limits = c(0,20)) +
+  scale_x_continuous(limits = c(0,7)) +
+  labs(x = "Frequency (saccades/s)", y = "Median saccade amplitude", color = "") +
+  scale_color_d3() +
+  scale_fill_d3() 
+# 
+# trial_saccades_cut %>%
+#   group_by(participant, target_class) %>%
+#   mutate(freq_part = median(freq),
+#          dist_part = median(median_dist)) %>%
+#   ggplot(aes(freq, median_dist, color = target_class %>% fct_rev)) + 
+#   geom_point(alpha = .2)  +
+#   geom_point(aes(freq_part, dist_part, fill = target_class %>% fct_rev), color = "black", size = 2, shape = 21, show.legend = F) +
+#   geom_line(aes(freq_part, dist_part, group = participant), inherit.aes = F, alpha = .3) +
+#   geom_line(aes(freq_pg.4, amp), inherit.aes = F, data = amp_ref) +
+#   geom_line(aes(freq_pg.9, amp), inherit.aes = F, data = amp_ref) +
+#   theme_bw() +
+# #  scale_color_manual(values = color_vals) +
+# #  scale_fill_manual(values = color_vals) +
+#   guides(color = guide_legend(override.aes = list(alpha = 1, size = 3))) +
+#   scale_y_continuous(limits = c(0,20)) +
+#   scale_x_continuous(limits = c(0,7)) +
+#   labs(x = "Frequency (saccades/s)", y = "Median saccade amplitude", color = "") +
+#   scale_color_d3() +
+#   scale_fill_d3() 
+
+
+```
+
+
+```{r}
+with(trial_saccades, cor.test(median_dist, median_phasedist))
+
+```
+
+# phase difference: saccade launch/landing points
+
+```{r}
+saccades %>% 
+  filter(!first_saccade) %>% 
+  filter(signtype == "cue", !is.na(timept), trial_type == "occluded_trial", 
+         target_class == "hidden") %>%
+  mutate(timept = str_to_title(timept)) %>%
+  ggplot(aes(x = phase_diff_unwrap, y = ..density.., fill = timept %>% fct_rev)) + 
+  geom_histogram(binwidth=.05, position = "identity", alpha = .5) +
+  geom_vline(aes(xintercept = 0), alpha = .7, linetype = "dashed") +
+  geom_text(aes(x = .15, y = -.015), label = "Lead", alpha = .4) +
+  geom_text(aes(x = -.12, y = -.015), label = "Lag", alpha = .4) +  
+  labs(fill = "",
+       x = "Phase difference (turns)", y = "Density") +
+  theme_bw() +
+  scale_fill_d3() +
+  scale_x_continuous(labels = formatterphase, breaks = seq(-2, 2, by = .25)*2*pi, limits = c(-2,2))
+
+```
+
 

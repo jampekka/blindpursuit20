@@ -71,11 +71,12 @@ color_breaks <- c("saccade", "pursuit", " ", "target","visible","hidden")
 
 # other specs
 
-jov_theme = theme_bw(base_size = 12, #base_family = "Helvetica"
-                     ) + 
+jov_theme <- theme_bw(base_size = 12) + #base_family = "Helvetica"
   theme(panel.grid.major = element_line(size = 0.5, color = "grey"),
-axis.line = element_line(size = 0.7, color = "black"), legend.position = c(0.85,
-0.7), text = element_text(size = 14))
+        axis.line = element_line(size = 0.7, color = "black"), 
+        legend.position = c(0.85, 0.7), text = element_text(size = 12),
+        legend.background = element_rect(fill = "transparent", colour = NA),
+        legend.box.background = element_rect(fill = "transparent", colour = NA))
 
 ```
 
@@ -350,7 +351,7 @@ ts_interp %>%
   theme_bw() +
   geom_vline(xintercept = 0, alpha = .3) +
   geom_line(data = reflines_magn, aes(occl_ts, value, linetype = refline %>% fct_rev)) +
-  labs(x = "Time (s)", y = "Angular difference", linetype = "Reference line", color = "Participant") +
+  labs(x = "Time (s)", y = "Position difference (degrees)", linetype = "Reference line", color = "Participant") +
   scale_color_d3()
 
 ```
@@ -418,7 +419,8 @@ ts_interp_radius %>%
   theme_bw() +
   geom_vline(xintercept = 0, alpha = .3) +
   geom_line(data = reflines_radius, aes(occl_ts, value, linetype = refline %>% fct_rev)) +
-  labs(x = "Time (s)", y = "Radius difference", linetype = "Reference line", color = "Participant") +
+  labs(x = "Time (s)", y = "Radius difference (degrees)", linetype = "Reference line", 
+       color = "Participant") +
   scale_y_continuous(limits = c(-13.5, 13.5)) +
   scale_color_d3()
 
@@ -552,7 +554,7 @@ trial_saccades %>%
   summarise(median(pg, na.rm=T))
 
 # use median PG for each condition to plot reference lines
-amp_ref <- tibble(amp = seq(0.1, 15, .2), freq = ref_freq(amp, 0), freq_pg.4 = ref_freq(amp, .46),
+amp_ref <- tibble(amp = seq(0.1, 15, .2), freq_pg0 = ref_freq(amp, 0), freq_pg.4 = ref_freq(amp, .46),
                   freq_pg.9 = ref_freq(amp, .9))
          
 ```
@@ -569,6 +571,7 @@ trial_saccades %>%
   geom_point(aes(freq_part, dist_part, fill = target_class %>% fct_rev), 
              color = "black", size = 2, shape = 21, show.legend = F) +
   geom_line(aes(freq_part, dist_part, group = participant), inherit.aes = F, alpha = .3) +
+  geom_line(aes(freq_pg0, amp), inherit.aes = F, data = amp_ref) +
   geom_line(aes(freq_pg.4, amp), inherit.aes = F, data = amp_ref) +
   geom_line(aes(freq_pg.9, amp), inherit.aes = F, data = amp_ref) +
   geom_text(aes(x = .1, y = 15.5), label = "PG .90", inherit.aes = F) +
@@ -581,7 +584,7 @@ trial_saccades %>%
   scale_x_continuous(limits = c(0,7)) +
   labs(x = "Frequency (saccades/s)", y = "Median saccade amplitude", color = "") +
   scale_color_d3() +
-  scale_fill_d3() 
+  scale_fill_d3() + jov_theme
 # 
 # trial_saccades_cut %>%
 #   group_by(participant, target_class) %>%
@@ -629,8 +632,19 @@ saccades %>%
        x = "Phase difference (turns)", y = "Density") +
   theme_bw() +
   scale_fill_d3() +
-  scale_x_continuous(labels = formatterphase, breaks = seq(-2, 2, by = .25)*2*pi, limits = c(-2,2))
+  scale_x_continuous(labels = formatterphase, breaks = seq(-2, 2, by = .25)*2*pi, limits = c(-2,2)) 
+
 
 ```
 
+numbers: median phase differences for first saccades & other saccades
+
+# time series: avg phase difference per participant at launch/landing
+
+```{r}
+saccades %>%
+  ggplot(aes(trial_ts, phase_diff_unwrap, color = timept)) + geom_point(alpha = .6) +
+  facet_wrap(~participant)
+
+```
 

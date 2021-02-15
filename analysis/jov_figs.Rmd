@@ -62,17 +62,27 @@ scales::show_col(pal_lancet("lanonc")(10))
 
 display.brewer.all(colorblindFriendly = TRUE)
 
-# # change these
 
+# saccade = red, pursuit = blue, visible = black, hidden = gray
 color_vals <- c( # actual colors used in the plot
                                 "Gaze" = "white",
                                 "Saccade" = "#D62728FF", # '#DC0000FF', 
-                                "Smooth pursuit" =  "#FF7F2EFF", #'darksalmon', 
+                                "Smooth pursuit" =  "#0088b7", #"#41698DDF", #'darksalmon', 
                                 "Object" = "white",
-                                "Visible" = "#31688EFF",
-                                "Hidden" = "#91D1C2FF", 
-                                "Target" = "#31588EFF",
+                                "Visible" = "black",
+                                "Hidden" = "grey", 
+                                "Target" = "black",
                                 " " = "white")
+
+# color_vals <- c( # actual colors used in the plot
+#                                 "Gaze" = "white",
+#                                 "Saccade" = "#D62728FF", 
+#                                 "Smooth pursuit" =  "#FF7F2EFF", 
+#                                 "Object" = "white",
+#                                 "Visible" = "#31688EFF",
+#                                 "Hidden" = "#91D1C2FF", 
+#                                 "Target" = "#31588EFF",
+#                                 " " = "white")
 #
 color_breaks <- c("Gaze", "Saccade", "Smooth pursuit", " ", "Object","Visible","Hidden", " ", " ")
 
@@ -121,7 +131,7 @@ isochronic_ts <- df_trials %>%
 
 
 # can't see number 3 and 9 -> adjust. make sure this is visible!!
-isochronic_ts[3] <- isochronic_ts[3] - 0.04198366 #0.461927 # 1.298052 # 1.717995201
+isochronic_ts[3] <- isochronic_ts[3] - 0.04198366
 
 
 isochronic_lines <- df_trials %>%
@@ -150,16 +160,16 @@ df_trials %>%
     mutate(seg_id = data.table::rleid(seg_fill)) %>%
     ggplot() + 
     geom_path(aes(target_x, target_y, color = target_class, group=target_class), 
-              alpha = .6, size =2, linejoin = "bevel") +
+              alpha = 1, size =1, linejoin = "bevel") +
     geom_line(data = isochronic_lines, aes(x, y, group = rowname), linetype = "dashed",
               inherit.aes = F) +
     geom_path(aes(gazeX_s, gazeY_s, color = seg_fill, group=1), 
-              alpha = 1, inherit.aes = F, size = 1.2, linejoin = "bevel", lineend = "round") +
-    geom_point(aes(0, 0, color = " "), alpha = 0) +
+              alpha = 1, inherit.aes = F, size = 1, linejoin = "bevel", lineend = "round") +
+    geom_point(aes(0, 0, color = " "), alpha = 0, inherit.aes = F, show.legend = F) +
 #    geom_curve(aes(x = target_x1 + 2, y = target_y1, 
 #                   xend = target_x2 + 2, yend = target_y2), data = curve_df, 
 #                   curvature = -0.15) +
-    geom_path(aes(target_x, target_y - 2), data = curve_df, arrow = arrow()) +
+    geom_path(aes(target_x, target_y - 2), data = curve_df, arrow = arrow(length = unit(0.3, "cm"))) +
     labs(colour = "", x = "X (degrees)", y = "Y (degrees)") +
     coord_fixed() +
     scale_y_continuous(limits = c(-16, 16)) +
@@ -185,13 +195,11 @@ circ_trials <- df_trials %>%
 ```
 
 ```{r}
-trial_circ <- plot_trial(8, 393) + theme(legend.direction = "vertical",
-        legend.position = "right")
+(trial_circ <- plot_trial(8, 393))
 
 ```
+# 1b. x-y time series
 
-
-### 1b. phase-radius, saccades + pursuits
 ```{r}
 occlusion_starts <- df_trials %>%
   group_by(participant, trial_number) %>%
@@ -199,14 +207,85 @@ occlusion_starts <- df_trials %>%
   select(participant, trial_number, trial_ts) %>%
   rename(occl_start = trial_ts)
 
-plot_segm_phaserad <- function(sbj, trialn) {
+
+plot_segm_xy <- function(sbj, trialn) {
+
   
-  
-  
-    trialdur <- df_trials %>%
+  xcoord <- df_trials %>%
+    full_join(occlusion_starts) %>%
+    mutate(trial_ts = trial_ts - occl_start) %>%
     filter(participant == sbj, trial_number == trialn) %>%
-      summarise(trial_duration = max(trial_ts)) %>%
-      pull(trial_duration)
+    mutate(target_class = factor(target_class, levels = c("Object", "Visible", "Hidden", "Target"))) %>%
+    mutate(seg_fill = factor(seg_fill, levels = c("Gaze", "Smooth pursuit", "Saccade"))) %>%
+    mutate(seg_id = data.table::rleid(seg_fill)) %>%
+    ggplot() + 
+#    geom_rect(data=rects, aes(xmin=xmin, ymin=ymin, xmax=xmax, ymax=ymax, 
+#        fill=target_class, group=1), alpha = .4) +  
+    geom_path(aes(trial_ts, target_x, color = target_class, group=target_class), 
+              alpha = 1, size = 1) +
+    geom_path(aes(trial_ts, gazeX_s, color = seg_fill, group=1), size = 1, alpha = 1,
+              inherit.aes = F, linejoin = "bevel", lineend = "round") +
+    labs(x = "", y = "X (degrees)", color = "") +
+    scale_color_manual(breaks=c(color_breaks),
+                       values = c(color_vals),
+                     drop = F)  + 
+    scale_fill_manual(color_breaks,
+                       values = color_vals,
+                     drop = F)  + 
+    scale_y_continuous(limits = c(-15, 15)) +
+    jov_theme  +
+    theme(axis.text.x=element_blank(), legend.position = "none")
+
+#    coord_fixed(ratio = .05)  + 
+#    guides(col = guide_legend(override.aes = list(shape = 15, size = 8))) 
+  
+    ycoord <- df_trials %>%
+      full_join(occlusion_starts) %>%
+    mutate(trial_ts = trial_ts - occl_start) %>%
+    filter(participant == sbj, trial_number == trialn) %>%
+    mutate(target_class = factor(target_class, levels = c("Object", "Visible", "Hidden", "Target"))) %>%
+    mutate(seg_fill = factor(seg_fill, levels = c("Gaze", "Smooth pursuit", "Saccade"))) %>%
+    ggplot() + 
+#    geom_rect(data=rects, aes(xmin=xmin, ymin=ymin, xmax=xmax, ymax=ymax, 
+#        fill=target_class, group=1), alpha = .4) +  
+    geom_path(aes(trial_ts, target_y, color = target_class, group=target_class), 
+              alpha = 1, size = 1) +
+    geom_path(aes(trial_ts, gazeY_s, color = seg_fill, group=1), size = 1, alpha = 1,
+              inherit.aes = F, linejoin = "bevel", lineend = "round") +
+    labs(x = "", y = "Y (degrees)", color = "") +
+    scale_color_manual(breaks=c(color_breaks),
+                       values = c(color_vals),
+                     drop = F)  + 
+    scale_fill_manual(color_breaks,
+                       values = color_vals,
+                     drop = F)  + 
+    jov_theme +
+#    coord_fixed(ratio = .05)  + 
+    guides(color = guide_legend(override.aes = list(alpha = .6))) +
+      scale_y_continuous(limits = c(-15, 15)) + theme(axis.text.x=element_blank(), legend.position = "none")
+    
+    list(xcoord, ycoord)
+    
+}
+
+
+
+trial_xy_times <- plot_segm_xy(8, 393)
+
+
+pxy <- ggarrange(plotlist = trial_xy_times, ncol = 1, align = "hv") 
+
+
+
+pxy
+```
+
+
+### 1c. phase-radius time series
+```{r}
+
+plot_segm_phaserad <- function(sbj, trialn) {
+
   
   phase <- df_trials %>%
     full_join(occlusion_starts) %>%
@@ -219,8 +298,8 @@ plot_segm_phaserad <- function(sbj, trialn) {
 #    geom_rect(data=rects, aes(xmin=xmin, ymin=ymin, xmax=xmax, ymax=ymax, 
 #        fill=target_class, group=1), alpha = .4) +  
     geom_path(aes(trial_ts, unwrap_target_phase_R, color = target_class, group=target_class), 
-              alpha = .6, size = 2) +
-    geom_path(aes(trial_ts, unwrap_gaze_phase_R, color = seg_fill, group=1), size = 1.2, alpha = .8,
+              alpha = 1, size = 1) +
+    geom_path(aes(trial_ts, unwrap_gaze_phase_R, color = seg_fill, group=1), size = 1, alpha = 1,
               inherit.aes = F, linejoin = "bevel", lineend = "round") +
     labs(x = "", y = "Phase (turns)", color = "") +
     scale_color_manual(breaks=c(color_breaks),
@@ -246,8 +325,8 @@ plot_segm_phaserad <- function(sbj, trialn) {
 #    geom_rect(data=rects, aes(xmin=xmin, ymin=ymin, xmax=xmax, ymax=ymax, 
 #        fill=target_class, group=1), alpha = .4) +  
     geom_path(aes(trial_ts, target_radius, color = target_class, group=target_class), 
-              alpha = .6, size = 2) +
-    geom_path(aes(trial_ts, gaze_radius, color = seg_fill, group=1), size = 1.2, alpha = .8,
+              alpha = 1, size = 1) +
+    geom_path(aes(trial_ts, gaze_radius, color = seg_fill, group=1), size = 1, alpha = 1,
               inherit.aes = F, linejoin = "bevel", lineend = "round") +
     labs(x = "Time (s)", y = "Radius (degrees)", color = "") +
     scale_color_manual(breaks=c(color_breaks),
@@ -270,22 +349,32 @@ plot_segm_phaserad <- function(sbj, trialn) {
 trial_times <- plot_segm_phaserad(8, 393)
 
 
-p <- ggarrange(plotlist = trial_times, ncol = 1, align = "hv") 
+p_phaserad <- ggarrange(plotlist = trial_times, ncol = 1, align = "hv") 
 
 
 
-p
+p_phaserad
 
 ```
 
 ```{r}
 
-pp <- ggarrange(plotlist = list(p, trial_circ), ncol = 2, widths = c(2, 2.2)) 
+#pp <- ggarrange(plotlist = list(p, trial_circ), ncol = 2, widths = c(2, 2.2)) 
 
-pp
+pp_left <- ggarrange(plotlist = c(trial_xy_times, trial_times), ncol = 1, align = "hv") 
 
-ggsave(filename="jov_figures/trial_illustr.pdf", plot=pp, width=24, height = 8, units = "cm") # TODO add xintercept (as below), make a bit smaller
 
+pp <- ggarrange(plotlist = list(pp_left, trial_circ + theme(legend.direction = "vertical",
+        legend.position = "bottom")), 
+        ncol = 2, widths = c(2.8, 2.4)) 
+
+```
+
+
+
+
+```{r}
+ggsave(filename="jov_figures/trial_illustr.pdf", plot=pp, width=19, height = 13, units = "cm") # TODO add xintercept (as below), make a bit smaller
 ```
 
 
@@ -534,9 +623,9 @@ p <-  int_data %>%
   spread(seg, cumulative_phasedist) %>% 
   mutate(saccade = ifelse(is.na(saccade), 0, saccade)) %>%
   ggplot(aes(group = interaction(participant, trial_number))) +
-  geom_ribbon(aes(cond_ts, ymin = 0, ymax = pursuit, fill = "Smooth pursuit"), alpha = .2) +
-  geom_ribbon(aes(cond_ts, ymin = pursuit, ymax = pursuit + saccade, fill = "Saccade"), alpha = .2)  +
-  geom_line(aes(cond_ts, total_cphasedist, group = interaction(participant, trial_number)), alpha = .2, inherit.aes = F) +
+  geom_ribbon(aes(cond_ts, ymin = pursuit, ymax = pursuit + saccade, fill = "Saccade"), alpha = .03)  +
+  geom_ribbon(aes(cond_ts, ymin = 0, ymax = pursuit, fill = "Smooth pursuit"), alpha = .03) +
+  geom_line(aes(cond_ts, total_cphasedist, group = interaction(participant, trial_number)), alpha = .1, inherit.aes = F) +
   #            aes(cond_ts, cumulative_phasedist), alpha = .8) +
   geom_line(aes(cond_ts, cond_ts * (pi/2)), linetype = "dashed", color = "white",
             size=1, inherit.aes = F) +
@@ -573,7 +662,8 @@ phase_covered
 
 ```{r}
 
-ggsave(filename="jov_figures/total_phase.pdf", plot=phase_covered, width=19, height = 8, units = "cm")
+ggsave(filename="jov_figures/total_phase.pdf", plot=phase_covered, width=19, height = 9, units = "cm")
+
 ```
 
 
@@ -604,7 +694,7 @@ ref_freq <- function(amp, pg) { # pg = pursuit gain from 0 (pure saccadic) to 1 
 ```{r}
 # get values for PG from observed amplitude & frequency data:
 
-trial_saccades %>%
+trial_saccades_cut %>%
   mutate(ampX = (2*13.5^2 - median_dist^2) / (2*13.5^2),
          ampA = acos(ampX)) %>%
   mutate(sacc_speed = freq*ampA, # formulas derived from above: gaze_speed = freq*ampA
@@ -621,7 +711,7 @@ amp_ref <- tibble(amp = seq(0.1, 15, .2), freq_pg0 = ref_freq(amp, 0), freq_pg.4
 NOTE: PG in hidden is probably higher because of the first ~0.5 s included.
 
 ```{r}
-freq_amp <- trial_saccades %>%
+freq_amp <- trial_saccades_cut %>%
   mutate(target_class = str_to_title(target_class)) %>%
   group_by(participant, target_class) %>%
   mutate(freq_part = median(freq),

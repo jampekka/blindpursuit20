@@ -9,82 +9,27 @@ library(pastecs)
 library(zoo)
 library(ggsci)
 library(scales)
-library(RColorBrewer)
-library(viridisLite)
 library(tidyverse)
 
 df_trials <- readRDS('df_trials.RDS')
 saccades <- readRDS('saccades.RDS')
 seg_data <- readRDS('saccade_pursuit_full.rds')
-int_data <- readRDS('saccade_pursuit_int.rds')
-trial_saccades <- readRDS('trial_saccades.rds')
-
-sddata <- data.table::fread('std_dump.csv.gz') # R.utils needed
-
-```
+seg_data_uncut <- readRDS('saccade_pursuit_uncut.rds')
+sddata <- data.table::fread('std_dump.csv.gz')
+mean_sd <- data.table::fread('mean_stds.csv')
 
 
-Use the Helvetica font.  
-Use approximately 10-point type for axis numbers, and 12-point type for axis labels.  
-The type should be about the size of type in the body text, when the figure is created at the desired size.  
-Do not use boldface.  
-Do not use too wide a range of font sizes (less than a range of 8 points).  
-Do not use 3D shapes for 2D data.  
-Do not use bar charts when line graphs will do.  
-Do not place a title at the top of the figure; this should go in the figure caption.  
-Do not draw lines or shadows around the outside of the figure.  
-Use color to distinguish data series, or for other useful didactic purposes, but not for decoration.  
-Capitalize the first letter of the first word in the axis labels. 
-If the axis labels include units, place them in parentheses.  
-Avoid repeating axis labels in multi-panel figures.  
-Figures should be placed in the manuscript after the paragraph in which it is first mentioned. 
-
-```{r plot_specs}
-# colors 
-# separate colors for: 
-# 1. participants: (d3 palette (10/20) OR) viridis default palette
-
-
-# 2. gaze: saccade/pursuit: a pair from d3-10
-
-# 3. object: hidden/visible/target: a triplet from d3-10/20
-
-# 4. saccade launch/landing points
-
-scales::show_col(pal_d3("category10")(10))
-scales::show_col(pal_d3("category20")(20))
-
-show_col(viridis_pal()(30))
-show_col(viridis_pal(direction = -1)(10))
-
-scales::show_col(pal_npg("nrc")(9))
-scales::show_col(pal_lancet("lanonc")(10))
-
-display.brewer.all(colorblindFriendly = TRUE)
-
-
-# saccade = red, pursuit = blue, visible = black, hidden = gray
-color_vals <- c( # actual colors used in the plot
-                                "Gaze" = "white",
-                                "Saccade" = "#D62728FF", # '#DC0000FF', 
-                                "Smooth pursuit" =  "#0088b7", #"#41698DDF", #'darksalmon', 
+color_vals <- c("Gaze" = "white",
+                                "Saccade" = "#D62728FF", 
+                                "Smooth pursuit" =  "#0088b7", 
                                 "Object" = "white",
-                                "Visible" = "black",
-                                "Hidden" = "grey", 
+                                "Visible" = "black", 
+                                "Occluded" = "darkgrey", 
                                 "Target" = "black",
                                 " " = "white")
 
-# color_vals <- c( # actual colors used in the plot
-#                                 "Gaze" = "white",
-#                                 "Saccade" = "#D62728FF", 
-#                                 "Smooth pursuit" =  "#FF7F2EFF", 
-#                                 "Object" = "white",
-#                                 "Visible" = "#31688EFF",
-#                                 "Hidden" = "#91D1C2FF", 
-#                                 "Target" = "#31588EFF",
-#                                 " " = "white")
 #
-color_breaks <- c("Gaze", "Saccade", "Smooth pursuit", " ", "Object","Visible","Hidden", " ", " ")
+color_breaks <- c("Gaze", "Saccade", "Smooth pursuit", " ", "Object","Visible","Occluded", " ", " ")
 
 # other specs
 
@@ -94,31 +39,69 @@ jov_theme <- theme_classic() + #base_family = "Helvetica"
         axis.text=element_text(size=10), 
         axis.title=element_text(size=12))
 
-```
 
-```{r}
+update_geom_defaults("point", list(shape = 16))
 
-#PHASE FORMATTER (radians -> turns)
+
+#PHASE FORMATTER (plot labels in radians -> turns)
 
 formatterphase <- function(x){ 
-    x / (2*pi)
+    sprintf("%.2f", x / (2*pi))
 }
 
 # add this to plot
- scale_y_continuous(labels = formatterphase, breaks = seq(-2, 2, by = .25)*2*pi)
+# scale_y_continuous(labels = formatterphase, breaks = seq(-2, 2, by = .25)*2*pi)
+
+
   
 df_trials <- df_trials %>% 
     mutate(target_class = str_to_title(target_class),
            seg_fill = recode(seg_fill, "pursuit" = "Smooth pursuit", "saccade" = "Saccade")) 
+
+saccades <- saccades %>%
+  mutate(target_class = recode(target_class, "hidden" = "occluded") %>% str_to_title)
+  
+occlusion_starts <- df_trials %>%
+  group_by(participant, trial_number) %>%
+  filter(occl_ts == 0, trial_type == "occluded_trial") %>%
+  select(participant, trial_number, trial_ts) %>%
+  rename(occl_start = trial_ts)
+
 ```
 
 
-## 1 Illustrative time series
 
-### 1a. screen x-y, saccades + pursuits
+## Segmentation
 
 ```{r}
-#TODO fix legend titles by extracting (to match saccade freq fig)
+(seg <- df_trials %>%
+  filter(participant == 2, trial_type == "occluded_trial") %>% 
+  filter(trial_number == 377) %>% 
+   mutate(rg = "Raw gaze") %>%
+   mutate(seg_fill = ifelse(seg_fill == "Smooth pursuit", "Smooth pursuit, fixation", seg_fill)) %>%
+  ggplot() + 
+  geom_point(aes(trial_ts, gazeX, color = rg), size = 2.2, alpha = .3) +
+  geom_path(aes(trial_ts, gazeX_s, color = seg_fill), size = .8, group = 1, inherit.aes = F, alpha = 1) +
+    scale_color_manual(breaks=c(color_breaks, "Smooth pursuit, fixation", "Raw gaze"),
+                       values = c("Smooth pursuit, fixation" = "#00aeea", color_vals, "Raw gaze" = "black"),
+                     drop = F,
+                     guide = guide_legend(override.aes = list(linetype = c(1, 1, 0),
+                                                              shape = c(NA, NA, 16),
+                                                              alpha = c(1,1,.8)))) +
+   labs(x = "Time (s)", y = "Horizontal gaze position (degrees)", color = "") +
+  jov_theme +
+   theme(legend.position = c(0.85, 0.9)))
+  
+
+ggsave(filename="jov_figures/nslr.pdf", plot=seg, width=19, height = 8, units = "cm")
+```
+
+
+## Sample trial
+
+### x-y
+
+```{r}
 
 plot_trial <- function(sbj, trialn) {
 
@@ -129,10 +112,8 @@ isochronic_ts <- df_trials %>%
     filter(ts == max(ts)) %>% 
     ungroup %>% pull(trial_ts)
 
-
-# can't see number 3 and 9 -> adjust. make sure this is visible!!
+# can't see number 3 and 9 -> adjust. 
 isochronic_ts[3] <- isochronic_ts[3] - 0.04198366
-
 
 isochronic_lines <- df_trials %>%
    filter(participant == sbj, trial_number == trialn) %>%
@@ -146,16 +127,13 @@ isochronic_lines <- df_trials %>%
     spread(coord, value) %>%
     arrange(rowname, desc(var)) 
 
-
-
-  
 curve_df <- df_trials %>%
   filter(participant == sbj, trial_number == trialn) %>%
   slice(1:45)
 
 df_trials %>%
     filter(participant == sbj, trial_number == trialn) %>%
-    mutate(target_class = factor(target_class, levels = c("Object", "Visible", "Hidden", "Target"))) %>%
+    mutate(target_class = factor(target_class, levels = c("Object", "Visible", "Occluded", "Target"))) %>%
     mutate(seg_fill = factor(seg_fill, levels = c("Gaze", "Smooth pursuit", "Saccade"))) %>%
     mutate(seg_id = data.table::rleid(seg_fill)) %>%
     ggplot() + 
@@ -166,9 +144,6 @@ df_trials %>%
     geom_path(aes(gazeX_s, gazeY_s, color = seg_fill, group=1), 
               alpha = 1, inherit.aes = F, size = 1, linejoin = "bevel", lineend = "round") +
     geom_point(aes(0, 0, color = " "), alpha = 0, inherit.aes = F, show.legend = F) +
-#    geom_curve(aes(x = target_x1 + 2, y = target_y1, 
-#                   xend = target_x2 + 2, yend = target_y2), data = curve_df, 
-#                   curvature = -0.15) +
     geom_path(aes(target_x, target_y - 2), data = curve_df, arrow = arrow(length = unit(0.3, "cm"))) +
     labs(colour = "", x = "X (degrees)", y = "Y (degrees)") +
     coord_fixed() +
@@ -182,45 +157,27 @@ df_trials %>%
 
 }
 
-# a trial with occlusion, saccades & pursuits; less than one full circle (for clarity); phase/radius offset (for illustration)
-
-circ_trials <- df_trials %>%
-  filter(trial_type == "occluded_trial") %>%
-  group_by(participant, trial_number) %>%
-  filter(between(max(ts) - min(ts), 2.5, 3.5)) %>%
-  distinct(participant, trial_number)
-
-
-
 ```
 
 ```{r}
 (trial_circ <- plot_trial(8, 393))
 
 ```
-# 1b. x-y time series
+
+### x-y time series
 
 ```{r}
-occlusion_starts <- df_trials %>%
-  group_by(participant, trial_number) %>%
-  filter(occl_ts == 0) %>%
-  select(participant, trial_number, trial_ts) %>%
-  rename(occl_start = trial_ts)
-
 
 plot_segm_xy <- function(sbj, trialn) {
-
-  
   xcoord <- df_trials %>%
-    full_join(occlusion_starts) %>%
+    left_join(occlusion_starts) %>%
     mutate(trial_ts = trial_ts - occl_start) %>%
     filter(participant == sbj, trial_number == trialn) %>%
-    mutate(target_class = factor(target_class, levels = c("Object", "Visible", "Hidden", "Target"))) %>%
+    mutate(target_class = factor(target_class, levels = c("Object", "Visible", "Occluded", "Target"))) %>%
     mutate(seg_fill = factor(seg_fill, levels = c("Gaze", "Smooth pursuit", "Saccade"))) %>%
     mutate(seg_id = data.table::rleid(seg_fill)) %>%
     ggplot() + 
-#    geom_rect(data=rects, aes(xmin=xmin, ymin=ymin, xmax=xmax, ymax=ymax, 
-#        fill=target_class, group=1), alpha = .4) +  
+    geom_vline(xintercept = 0, alpha = .3, linetype = "dashed")  +
     geom_path(aes(trial_ts, target_x, color = target_class, group=target_class), 
               alpha = 1, size = 1) +
     geom_path(aes(trial_ts, gazeX_s, color = seg_fill, group=1), size = 1, alpha = 1,
@@ -235,19 +192,15 @@ plot_segm_xy <- function(sbj, trialn) {
     scale_y_continuous(limits = c(-15, 15)) +
     jov_theme  +
     theme(axis.text.x=element_blank(), legend.position = "none")
-
-#    coord_fixed(ratio = .05)  + 
-#    guides(col = guide_legend(override.aes = list(shape = 15, size = 8))) 
   
     ycoord <- df_trials %>%
-      full_join(occlusion_starts) %>%
+      left_join(occlusion_starts) %>%
     mutate(trial_ts = trial_ts - occl_start) %>%
     filter(participant == sbj, trial_number == trialn) %>%
-    mutate(target_class = factor(target_class, levels = c("Object", "Visible", "Hidden", "Target"))) %>%
+    mutate(target_class = factor(target_class, levels = c("Object", "Visible", "Occluded", "Target"))) %>%
     mutate(seg_fill = factor(seg_fill, levels = c("Gaze", "Smooth pursuit", "Saccade"))) %>%
     ggplot() + 
-#    geom_rect(data=rects, aes(xmin=xmin, ymin=ymin, xmax=xmax, ymax=ymax, 
-#        fill=target_class, group=1), alpha = .4) +  
+    geom_vline(xintercept = 0, alpha = .3, linetype = "dashed")  +
     geom_path(aes(trial_ts, target_y, color = target_class, group=target_class), 
               alpha = 1, size = 1) +
     geom_path(aes(trial_ts, gazeY_s, color = seg_fill, group=1), size = 1, alpha = 1,
@@ -260,7 +213,6 @@ plot_segm_xy <- function(sbj, trialn) {
                        values = color_vals,
                      drop = F)  + 
     jov_theme +
-#    coord_fixed(ratio = .05)  + 
     guides(color = guide_legend(override.aes = list(alpha = .6))) +
       scale_y_continuous(limits = c(-15, 15)) + theme(axis.text.x=element_blank(), legend.position = "none")
     
@@ -268,35 +220,27 @@ plot_segm_xy <- function(sbj, trialn) {
     
 }
 
-
-
 trial_xy_times <- plot_segm_xy(8, 393)
 
-
 pxy <- ggarrange(plotlist = trial_xy_times, ncol = 1, align = "hv") 
-
-
 
 pxy
 ```
 
 
-### 1c. phase-radius time series
+### phase-radius time series
 ```{r}
 
 plot_segm_phaserad <- function(sbj, trialn) {
-
-  
   phase <- df_trials %>%
-    full_join(occlusion_starts) %>%
+    left_join(occlusion_starts) %>%
     mutate(trial_ts = trial_ts - occl_start) %>%
     filter(participant == sbj, trial_number == trialn) %>%
-    mutate(target_class = factor(target_class, levels = c("Object", "Visible", "Hidden", "Target"))) %>%
+    mutate(target_class = factor(target_class, levels = c("Object", "Visible", "Occluded", "Target"))) %>%
     mutate(seg_fill = factor(seg_fill, levels = c("Gaze", "Smooth pursuit", "Saccade"))) %>%
     mutate(seg_id = data.table::rleid(seg_fill)) %>%
     ggplot() + 
-#    geom_rect(data=rects, aes(xmin=xmin, ymin=ymin, xmax=xmax, ymax=ymax, 
-#        fill=target_class, group=1), alpha = .4) +  
+    geom_vline(xintercept = 0, alpha = .3, linetype = "dashed")  +
     geom_path(aes(trial_ts, unwrap_target_phase_R, color = target_class, group=target_class), 
               alpha = 1, size = 1) +
     geom_path(aes(trial_ts, unwrap_gaze_phase_R, color = seg_fill, group=1), size = 1, alpha = 1,
@@ -311,19 +255,15 @@ plot_segm_phaserad <- function(sbj, trialn) {
     scale_y_continuous(labels = formatterphase, breaks = seq(-2, 2, by = .5)*2*pi) +
     jov_theme  +
     theme(axis.text.x=element_blank(), legend.position = "none")
-
-#    coord_fixed(ratio = .05)  + 
-#    guides(col = guide_legend(override.aes = list(shape = 15, size = 8))) 
   
     radius <- df_trials %>%
-      full_join(occlusion_starts) %>%
+      left_join(occlusion_starts) %>%
     mutate(trial_ts = trial_ts - occl_start) %>%
     filter(participant == sbj, trial_number == trialn) %>%
-    mutate(target_class = factor(target_class, levels = c("Object", "Visible", "Hidden", "Target"))) %>%
+    mutate(target_class = factor(target_class, levels = c("Object", "Visible", "Occluded", "Target"))) %>%
     mutate(seg_fill = factor(seg_fill, levels = c("Gaze", "Smooth pursuit", "Saccade"))) %>%
     ggplot() + 
-#    geom_rect(data=rects, aes(xmin=xmin, ymin=ymin, xmax=xmax, ymax=ymax, 
-#        fill=target_class, group=1), alpha = .4) +  
+      geom_vline(xintercept = 0, alpha = .3, linetype = "dashed")  +
     geom_path(aes(trial_ts, target_radius, color = target_class, group=target_class), 
               alpha = 1, size = 1) +
     geom_path(aes(trial_ts, gaze_radius, color = seg_fill, group=1), size = 1, alpha = 1,
@@ -336,7 +276,6 @@ plot_segm_phaserad <- function(sbj, trialn) {
                        values = color_vals,
                      drop = F)  + 
     jov_theme +
-#    coord_fixed(ratio = .05)  + 
     guides(color = guide_legend(override.aes = list(alpha = .6))) +
       scale_y_continuous(limits = c(10, 17), breaks = c(10, 13.5, 17)) + theme(legend.position = "none")
     
@@ -344,25 +283,19 @@ plot_segm_phaserad <- function(sbj, trialn) {
     
 }
 
-
-
 trial_times <- plot_segm_phaserad(8, 393)
 
-
 p_phaserad <- ggarrange(plotlist = trial_times, ncol = 1, align = "hv") 
-
-
 
 p_phaserad
 
 ```
 
+
+
 ```{r}
 
-#pp <- ggarrange(plotlist = list(p, trial_circ), ncol = 2, widths = c(2, 2.2)) 
-
 pp_left <- ggarrange(plotlist = c(trial_xy_times, trial_times), ncol = 1, align = "hv") 
-
 
 pp <- ggarrange(plotlist = list(pp_left, trial_circ + theme(legend.direction = "vertical",
         legend.position = "bottom")), 
@@ -370,18 +303,601 @@ pp <- ggarrange(plotlist = list(pp_left, trial_circ + theme(legend.direction = "
 
 ```
 
+```{r}
+ggsave(filename="jov_figures/trial_illustr.pdf", plot=pp, width=19, height = 13, units = "cm") 
+```
+
+## avg absolute positional/radius/phase difference at target reappearance
+
+The object was tracked closely during occlusion, the average total positional error (angular displacement between gaze positionand target object position) being 5.91 degrees at target reappearance (SD 4.92). Correspondingly, the average absolute phase differencewas 0.07 turns *(SD 0.07)* and radius difference 2.01 degrees (SD 1.87). 
+
+```{r}
+df_trials %>%
+  filter(trial_type == "occluded_trial", target_class == "Target") %>%
+  mutate(gt_abs_dist = sqrt((gazeX_s - target_x)^2 + (gazeY_s - target_y)^2)) %>%
+  group_by(participant, trial_number) %>%
+  slice(1) %>%
+  ungroup %>%
+  summarise(avg_dist = mean(gt_abs_dist, na.rm=T),
+            sd_dist = sd(gt_abs_dist, na.rm=T),
+            avg_phasediff = mean(abs(phase_diff_unwrap/(2*pi)), na.rm=T), 
+            sd_phasediff = sd(abs(phase_diff_unwrap/(2*pi)), na.rm=T), 
+            avg_raddiff = mean(abs(radius_diff), na.rm=T),
+            sd_raddiff = sd(abs(radius_diff), na.rm=T))
+
+```
+
+In the discrimination task, the success rate by participant rangedfrom 32 to 75 percent, with an overall rate of *57 percent*. When gaze was close to target (position error at most 1.5 degrees), the overallsuccess rate was over 90 percent
 
 
 
 ```{r}
-ggsave(filename="jov_figures/trial_illustr.pdf", plot=pp, width=19, height = 13, units = "cm") # TODO add xintercept (as below), make a bit smaller
+df_trials %>% filter(trial_type == "occluded_trial", target_class == "Target") %>% 
+  distinct(participant, trial_number, success_trial) %>% 
+  group_by(participant) %>%
+  summarise(success_rate = mean(success_trial)) %>%
+  arrange(success_rate)
+
+df_trials %>% 
+  filter(trial_type == "occluded_trial", target_class == "Target") %>% 
+  group_by(participant, trial_number, success_trial) %>% 
+  summarise(gazeX_s = mean(gazeX_s, na.rm=T),
+            gazeY_s = mean(gazeY_s, na.rm=T),
+            target_x = mean(target_x, na.rm=T),
+            target_y = mean(target_y, na.rm=T)) %>%
+  mutate(gt_abs_dist = sqrt((gazeX_s - target_x)^2 + (gazeY_s - target_y)^2)) %>% 
+  group_by(gt_abs_dist <= 1.5) %>% summarise(mean(success_trial), n = n())
+
+```
+
+When the object was visible,  itwas tracked by smooth pursuit movements with some small-amplitude saccades (frequency *1.49* saccades/s, amplitude median *1.83 degrees*).  When the object was occluded, the trajectory was tracked mostly by saccadic eye movements - more saccades were made(*2.88* saccades/s), with a median amplitude of *4.49 degrees*
+
+```{r}
+df_trials %>% 
+  filter(trial_type == "occluded_trial", target_class %in% c("Visible", "Occluded")) %>%
+  group_by(participant, trial_number, target_class) %>%
+  summarise(trial_dur = max(trial_ts) - min(trial_ts), 
+            scount = n_distinct(saccade_index, na.rm=T)) %>%
+  mutate(trial_freq = scount/trial_dur) %>%
+  group_by(target_class) %>%
+  summarise(total_dur = sum(trial_dur),
+            total_saccades = sum(scount)) %>%
+  mutate(total_freq = total_saccades/total_dur)
+
+
+seg_data_uncut$sacc_timeseries %>%
+  filter(trial_type == "occluded_trial", target_class %in% c("visible", "occluded"), !first_seg, !last_seg) %>%
+  group_by(target_class) %>%
+  summarise(median_amp = median(dist, na.rm=T),
+            mean_amp = mean(dist, na.rm=T),
+            sd_amp = sd(dist, na.rm=T))
+
+
+```
+
+## Saccade latencies
+
+
+```{r}
+
+(slat <- saccades %>%
+  filter(trial_type == "occluded_trial", target_class == "Occluded") %>%
+  group_by(participant, trial_number) %>%
+  mutate(first_saccade_all = seg_index == min(seg_index)) %>%
+  ungroup %>%
+  group_by(participant, seg_index) %>%
+  mutate(seg_dur = (max(ts) - min(ts))) %>%
+  filter(timept == "launch", first_saccade_all) %>%
+  ggplot(aes(x=occl_ts, y=..density..)) + 
+  stat_bin(aes(y=..density..), geom="step", binwidth = .02, size = 1, boundary = 0) + 
+#  geom_vline(xintercept = 0.15, linetype = "dashed") +
+  labs(x = "Time (s)", y = "Density") + jov_theme)
+
+
+ggsave(filename="jov_figures/saccade_lat.pdf", plot=slat, width=10, height = 8, units = "cm")
+```
+
+## Saccade launch and landing points
+
+```{r}
+ 
+(saccade_ll <- saccades %>% 
+  filter(!vis_saccade) %>% 
+  filter(!is.na(timept), trial_type == "occluded_trial", target_class %in% c("Visible", "Occluded")) %>%
+  mutate(timept = str_to_title(timept) %>% fct_rev) %>% 
+  group_by(timept, target_class) %>%
+  mutate(median_phasediff = median(phase_diff_unwrap)) %>%
+  ggplot(aes(x = phase_diff_unwrap, y = ..density.., color = timept)) + 
+  geom_vline(aes(xintercept = median_phasediff, color = timept), show.legend = F, linetype = "longdash",
+             alpha = .8) +
+  stat_bin(geom="step", binwidth = .03, alpha = .8, position = "identity") +
+  facet_wrap(~target_class %>% fct_rev, scales = "free", ncol = 2) +
+  labs(color = "",
+       x = "Phase difference (turns)", y = "Density") +
+    scale_color_manual(values = c("Launch" = "#FF7F2EFF", "Landing" = "#D62728FF")) + 
+  scale_x_continuous(labels = formatterphase, breaks = seq(-2, 2, by = .1)*2*pi, limits = c(-0.25,0.25)*2*pi) +
+  jov_theme +
+ theme(strip.background = element_blank(),
+       strip.text.x = element_text(size = 11),
+       legend.position = c(.94, 1)))
+
+
+
+```
+
+```{r}
+ggsave(filename="jov_figures/saccade_ll.pdf", plot=saccade_ll, width=16, height = 8, units = "cm")
+
 ```
 
 
-### 2 time series of euclidean, phase and radius offset
+
+The absolute magnitude of phase difference was greater for landing than for launch points for all but oneparticipant (binomial test, p = .021; 
+
+```{r}
+saccades %>% 
+  filter(!vis_saccade) %>% 
+  filter(!is.na(timept), trial_type == "occluded_trial", target_class %in% c("Visible", "Occluded")) %>%
+  mutate(timept = str_to_title(timept) %>% fct_rev) %>% 
+  group_by(participant, timept, target_class) %>%
+  filter(target_class == "Occluded") %>%
+  select(participant, timept, phase_diff_unwrap, trial_number, seg_index) %>%
+  spread(timept, phase_diff_unwrap) %>%
+  mutate(closerto0 = (abs(Landing) / abs(Launch)) >= 1) %>%
+  group_by(participant) %>%
+  summarise(c = mean(closerto0, na.rm=T)) %>%
+  mutate(c > .5)
+
+binom.test(9, 10)
+```
+
+
+overall medians of absolute phase difference were 0.03 turns and *0.05* turns for launch and landingpoints, respectively).In contrast, during visible periods, even though not all saccades were catch-up saccades, they were very smallin terms of the phase covered and did not show clear anticipatory nature (medians of absolute phase difference were 0.01 turns forboth launch and landing points).  
+
+As can be seen in Figure 4, the phase lead of saccade landing points during occlusion was manifoldcompared to landing points in visible periods (0.05 vs. 0.01 turns, respectively).
+
+```{r}
+
+saccades %>% 
+  filter(!vis_saccade) %>% 
+  filter(!is.na(timept), trial_type == "occluded_trial", target_class %in% c("Visible", "Occluded")) %>%
+  mutate(timept = str_to_title(timept) %>% fct_rev) %>% 
+  group_by(timept, target_class) %>%
+  summarise(abs_median_phasediff = median(abs(phase_diff_unwrap))/(2*pi)) 
+
+saccades %>%   
+  filter(!vis_saccade) %>% 
+  filter(!is.na(timept), trial_type == "occluded_trial", target_class %in% c("Visible", "Occluded")) %>%
+  mutate(timept = str_to_title(timept) %>% fct_rev) %>% 
+  group_by(timept, target_class) %>%
+  summarise(median_phasediff = median(phase_diff_unwrap/(2*pi)))
+
+  
+```
+
+
+## Phase covered over time
+
+```{r}
+
+get_zero_phases <- function(data_segtype) { 
+  
+zero_phases <- data_segtype %>%
+  filter(target_class %in% c("visible", "occluded")) %>%
+   distinct(participant, trial_type, target_class, trial_number) %>%
+  anti_join(data_segtype %>% filter(cond_ts == 0), by = c("participant", "trial_type", "target_class", "trial_number")) %>%
+  mutate(cond_ts = 0,
+         cumulative_phasedist = 0)
+
+cp_seg_zero <- data_segtype %>%
+  filter(target_class %in% c("visible", "occluded")) %>%
+  full_join(zero_phases, by = c("participant", "cond_ts", "trial_type", "trial_number", "target_class", "cumulative_phasedist")) %>%
+  arrange(participant, target_class, trial_number, cond_ts) 
+
+cp_seg_zero
+}
+
+
+cphase_zeros <- sapply(seg_data, get_zero_phases, simplify = FALSE, USE.NAMES = TRUE)
+
+```
+
+```{r}
+# combine data for plot
+
+pursuit_int <- cphase_zeros$pursuit_timeseries %>%
+  filter(trial_type == "occluded_trial", target_class %in% c("visible", "occluded")) %>%
+  group_by(participant, trial_number, target_class) %>%
+  arrange(participant, trial_number, target_class, cond_ts) %>% 
+  group_modify(~reglin(.x$cond_ts, .x$cumulative_phasedist, xmin = 0, deltat = 1/60, n = 180, rule=1) %>% data.frame) %>%
+  ungroup %>%
+  filter(!is.na(y)) %>%
+  rename(cond_ts = x, cumulative_phasedist = y)  
+
+saccade_int <- cphase_zeros$sacc_timeseries %>%
+  filter(trial_type == "occluded_trial", target_class %in% c("visible", "occluded")) %>%
+  group_by(participant, trial_number, target_class) %>% 
+  filter(max(cumulative_phasedist) != 0) %>% # need to remove 0-saccade trials
+  arrange(participant, trial_number, target_class, cond_ts) %>%
+  group_modify(~reglin(.x$cond_ts, .x$cumulative_phasedist, xmin = 0, deltat = 1/60, n = 180, rule=1) %>% data.frame) %>%
+  ungroup %>%
+  filter(!is.na(y)) %>%
+  rename(cond_ts = x, cumulative_phasedist = y)
+
+int_data <- saccade_int %>%
+  mutate(seg = "saccade") %>%
+  rbind(pursuit_int %>% mutate(seg = "pursuit")) %>%
+  group_by(participant, target_class, trial_number) %>%
+  complete(cond_ts, seg) %>% # add cumulative counts to cover whole trial
+  arrange(participant, trial_number, target_class, seg, cond_ts) %>%
+  group_by(participant, trial_number, target_class, seg) %>%
+  fill(cumulative_phasedist) %>%
+  group_by(participant, target_class, trial_number, cond_ts) %>%
+  mutate(total_cphasedist = sum(cumulative_phasedist)) %>%
+  ungroup 
+```
+
+
+```{r}
+
+plot_phase_int <- function(cond) {
+  
+  if (cond == "Visible") {
+    xlim = c(0,2)
+  } else {
+    xlim = c(0,3)
+  }
+
+p <-  int_data %>%
+    mutate(target_class = str_to_title(target_class)) %>%
+  filter(target_class == cond) %>%
+  spread(seg, cumulative_phasedist) %>% 
+  mutate(saccade = ifelse(is.na(saccade), 0, saccade)) %>%
+  ggplot(aes(group = interaction(participant, trial_number))) +
+  geom_ribbon(aes(cond_ts, ymin = pursuit, ymax = pursuit + saccade, fill = "Saccade"), alpha = .03)  +
+  geom_ribbon(aes(cond_ts, ymin = 0, ymax = pursuit, fill = "Smooth pursuit"), alpha = .03) +
+  geom_line(aes(cond_ts, total_cphasedist, group = interaction(participant, trial_number)), alpha = .1, inherit.aes = F) +
+  geom_line(aes(cond_ts, cond_ts * (pi/2)), linetype = "dashed", color = "white",
+            size=1, inherit.aes = F) +
+  labs(title = str_to_title(cond),
+       y = "Cumulative phase (turns)",
+       x = "Time (s)", color = "", fill = "") +
+    scale_fill_manual(breaks=c(color_breaks),
+                       values = c(color_vals),
+                     drop = F) + 
+  scale_y_continuous(labels = formatterphase, breaks = seq(0, 2, by = .25)*2*pi, limits = c(0, 5)) +
+  scale_x_continuous(limits = xlim, breaks = seq(0,3,1)) +
+  guides(fill = guide_legend(override.aes = list(alpha = 1))) +
+  jov_theme
+
+p
+}
+
+
+phaseplots <- lapply(c("Visible", "Occluded"), plot_phase_int)
+
+phaseplots[[2]] <- phaseplots[[2]] + labs(y = "")  + theme(axis.text.y=element_blank())
+
+phase_covered <- ggarrange(plotlist = phaseplots, common.legend = T, ncol = 2, legend = "right", align = "hv",
+                           widths = c(2.18,3)) 
+
+phase_covered
+
+```
+
+```{r}
+ggsave(filename="jov_figures/total_phase.pdf", plot=phase_covered, width=19, height = 9, units = "cm")
+
+```
+
+
+During periods when the tracked object was visible, the total phase angle coveredwas almost entirely by smooth pursuit (median 91 percent of total phase covered).  During periods of occlusion, considerably less ofthe phase angle was covered by smooth pursuit (median 36 percent; see Figure 5).
+
+```{r}
+
+int_data %>%
+  group_by(participant, trial_number, target_class, seg) %>%
+  filter(row_number() == max(row_number())) %>%
+  ungroup %>%
+  filter(seg == "pursuit") %>%
+  mutate(pursuit_rel = cumulative_phasedist / total_cphasedist) %>%
+  group_by(target_class) %>%
+  summarise(p = median(pursuit_rel, na.rm=T))
+
+```
+
+
+All participants tracked the visible target mostly bysmooth pursuit and the occluded target mostly by saccades (after *1.5* seconds of tracking, all participant-wise medians of the proportionof phase covered by pursuit were above *85 percent* in the visible condition, and below *42 percent* in the occluded condition; binomial test p = .002). 
+
+```{r}
+# how many trials are left
+# int_data %>%
+#   group_by(participant, trial_number, target_class) %>%
+#   summarise(atleast = max(cond_ts) >= 1.5) %>%
+#   group_by(target_class) %>%
+#   summarise(trials_left = mean(atleast))
+
+int_data %>%
+  group_by(participant, trial_number, target_class, seg) %>%
+  filter(cond_ts >= 1.5) %>%
+  filter(row_number() == min(row_number())) %>%
+  ungroup %>%
+  filter(seg == "pursuit") %>%
+  mutate(pursuit_rel = cumulative_phasedist / total_cphasedist) %>%
+  group_by(participant, target_class) %>%
+  summarise(p = median(pursuit_rel, na.rm=T),
+            n = n_distinct(trial_number),
+            min_ts = min(cond_ts),
+            max_ts = max(cond_ts)) %>%
+  select(participant:p) %>%
+  spread(target_class, p) %>%
+  mutate(visible1 = visible > .85,
+         occluded1 = occluded < .42) 
+
+binom.test(10, 10)
+```
+
+## Pursuit duration and phase / saccade frequency & amplitude
+
+In occluded periods, pursuit duration was shorter (see *Appendix X*) and the phase angle covered by pursuit segments was smaller com-pared to visible periods
+
+
+```{r}
+pursuit_classes <- seg_data_uncut$pursuit %>%
+  filter(trial_type == "occluded_trial", phasedist > 0) %>%
+  mutate(target_class2 = case_when(
+    target_class == "visible" & !both_class ~ "Visible only",
+    target_class == "visible" & both_class ~ "Visible and occluded",
+    target_class == "occluded" & !both_class ~ "Occluded only",
+    T ~ "other"
+    )) %>%
+  mutate(target_class2 = factor(target_class2, levels = c("Visible only", "Visible and occluded", "Occluded only"))) %>%
+  mutate(abs_phasedist = abs(phasedist))
+
+
+pg_lmm1 <- lmerTest::lmer(phasedist ~ seg_dur*target_class2 + (seg_dur*target_class2|participant),
+                          data = pursuit_classes %>%
+               mutate(target_class2 = fct_relevel(target_class2, "Visible only"),
+                      abs_phasedist = abs_phasedist/(2*pi),
+                      phasedist = phasedist/(2*pi)))
+
+# pg_lm <- lm(phasedist ~ seg_dur*target_class2, 
+#                           data = pursuit_classes %>% 
+#                mutate(target_class2 = fct_relevel(target_class2, "Visible only"),
+#                       abs_phasedist = abs_phasedist/(2*pi),
+#                       phasedist = phasedist/(2*pi)))
+
+summary(pg_lm)
+
+
+slopes <- broom::tidy(pg_lmm1, effects = "fixed") %>%
+  select(term, estimate) %>%
+  mutate(term = recode(term, "seg_dur" = "visible_ref", 
+                       "target_class2Occluded only" = "occluded_main",
+                       "target_class2Visible and occluded" = "vishid_main",
+                       "seg_dur:target_class2Occluded only" = "occluded_int",
+                       "seg_dur:target_class2Visible and occluded" = "vishid_int",
+                       "(Intercept)" = "IC")) %>%
+  spread(term, estimate) %>%
+  mutate(vishid_slope = visible_ref + vishid_main + vishid_int,
+         occluded_slope = visible_ref + occluded_main + occluded_int) %>%
+  select(IC, visible_ref, vishid_slope, occluded_slope) %>%
+  gather(key, slope, -IC) %>%
+  mutate(pg = slope / .25) %>%
+  mutate(target_class2 = c("Visible only", "Visible and occluded", "Occluded only"))
+
+
+(pursuitplot <- broom::augment(pg_lmm1) %>%
+  left_join(slopes) %>%
+  mutate(target_class2 = factor(target_class2, levels = c("Visible only", "Visible and occluded", "Occluded only"))) %>%
+  ggplot(aes(seg_dur, phasedist, color = target_class2)) +
+  geom_point(alpha = .2, pch = 16) +
+  geom_line(aes(seg_dur, .fixed, linetype = factor(sprintf("%.2f",pg)) %>% fct_rev), alpha = 1, inherit.aes = F) +
+    scale_y_continuous(limits = c(0, .52)) +
+  labs(color = "", linetype = "Pursuit gain", 
+       x = "Pursuit duration (s)", y = "Phase covered (turns)") +
+  scale_color_manual(values = c("Occluded only" = "#5966de", "Visible only" = "#3d9c67", "Visible and occluded" = "black")) +
+  scale_fill_manual(values = c("Occluded only" = "#5966de", "Visible only" = "#3d9c67", "Visible and occluded" = "black")) +
+  jov_theme +
+    guides(color = guide_legend(override.aes = list(alpha = 1, size = 1.5))))
+
+```
+
+```{r}
+
+trial_amps <- seg_data_uncut$sacc_timeseries %>%
+  filter(trial_type == "occluded_trial", target_class %in% c("visible", "occluded"), 
+         ) %>%
+   left_join(occlusion_starts) %>% 
+  mutate(target_class = str_to_title(target_class)) %>%
+  group_by(participant, trial_number, target_class) %>%
+  summarise(median_amp = median(dist, na.rm=T),
+            median_phase = median(phasedist, na.rm=T),
+            total_phase = sum(phasedist, na.rm=T)) %>% ungroup 
+
+
+trial_famp <- df_trials %>% 
+  filter(trial_type == "occluded_trial", target_class %in% c("Visible", "Occluded")) %>%
+  group_by(participant, trial_number, target_class) %>%
+  summarise(trial_dur = max(trial_ts) - min(trial_ts), 
+            scount = n_distinct(saccade_index, na.rm=T)) %>%
+  mutate(freq = scount/trial_dur) %>%
+  ungroup %>%
+  full_join(trial_amps) %>%
+  ungroup %>%
+  mutate(median_phase2 = total_phase/freq) %>%
+  mutate(phase_per_sec = total_phase/trial_dur)
+
+```
+
+
+```{r}
+
+amp_ref <- data.frame(target_class2 = rep(c("Visible only","Occluded only", "Visible and occluded"), each = 60),
+                      freq = rep(seq(0.5, 10, length.out = 60), 3)) %>%
+  left_join(slopes, by = "target_class2") %>%
+  mutate(sg = 1 - pg) %>%
+    mutate(phaseref = ((pi/2)*sg)/freq) %>%  
+    mutate(ampref = sqrt(2*(13.5^2) - (2*(13.5^2)*cos(phaseref)))) 
+
+(ampref_trial <- trial_famp %>%
+  mutate(target_class = recode(target_class, "visible" = "Visible only", "occluded" = "Occluded only")) %>%
+  group_by(participant, target_class) %>%
+    filter(freq > 0) %>%
+  mutate(part_freq = median(freq, na.rm=T),
+         part_amp = median(median_amp, na.rm=T)) %>%
+   ggplot(aes(freq, median_amp, color = target_class)) + 
+  geom_point(alpha = .3, pch = 16) +
+  geom_point(aes(part_freq, part_amp, fill = target_class), pch = 21, color = "black") +
+#  geom_line(aes(part_freq, part_amp, group = participant), alpha = .2, inherit.aes = F) +
+  geom_line(aes(freq, ampref, linetype = factor(sprintf("%.2f",pg)) %>% fct_rev), color = "black", data = amp_ref, alpha = 1) +
+  labs(x = "Frequency (saccades/s)", y = "Median saccade amplitude (degrees)", color = "Object", linetype = "Pursuit gain") +
+#  geom_line(aes(1/succ_dur, .fitted, color = target_class), data = fitplot) +
+  scale_y_continuous(limits = c(-.01, 15)) +
+  scale_x_continuous(limits = c(0, 6)) +
+  scale_color_manual(values = c("Occluded" = "#5966de", "Visible" = "#3d9c67")) +
+    scale_fill_manual(values = c("Occluded" = "#5966de", "Visible" = "#3d9c67")) +
+  guides(color = guide_legend(override.aes = list(alpha = 1))) +
+  jov_theme)
+
+```
+
+Regression slopes were comparedto the constant speed of the target to assess pursuit gain, which was as high as *0.98* during visible periods but only *0.33* during occlusion. 
+
+*Based on random effects of the model, pursuit gain was at least 0.95 in visible and between 0.16 and 0.49 in the occluded condition for all participants*
+
+Same results with separate LMs
+
+```{r}
+
+# lm_part <- function(p) {
+# 
+#   fit <- lm(phasedist ~ seg_dur*target_class2, 
+#                           data = pursuit_classes %>% filter(participant == p) %>%
+#                mutate(target_class2 = fct_relevel(target_class2, "Visible only"),
+#                       phasedist = phasedist/(2*pi)))
+#   
+#   slopes <- broom::tidy(fit) %>% 
+#   select(term, estimate) %>%
+#   mutate(term = recode(term, "seg_dur" = "visible_ref", 
+#                        "target_class2Occluded only" = "occluded_main",
+#                        "target_class2Visible and occluded" = "vishid_main",
+#                        "seg_dur:target_class2Occluded only" = "occluded_int",
+#                        "seg_dur:target_class2Visible and occluded" = "vishid_int",
+#                        "(Intercept)" = "IC")) %>%
+#   spread(term, estimate) %>%
+#   mutate(vishid_slope = visible_ref + vishid_main + vishid_int,
+#          occluded_slope = visible_ref + occluded_main + occluded_int) %>%
+#   select(IC, visible_ref, vishid_slope, occluded_slope) %>%
+#   gather(key, slope, -IC) %>%
+#   mutate(pg = slope / .25) %>%
+#   mutate(target_class2 = c("Visible only", "Visible and occluded", "Occluded only"))
+#   
+#   slopes
+#   
+# }
+# 
+# pg_part <- sapply(1:10, lm_part, simplify = F)
+# 
+# pg_part %>% bind_rows(.id = "participant") %>%
+#   filter(target_class2 != "Visible and occluded") %>%
+#   select(participant, pg, target_class2) %>%
+#   spread(target_class2, pg)
+
+
+lme4::ranef(pg_lmm1) %>%
+  data.frame() %>%
+  full_join(broom::tidy(pg_lmm1, effects = "fixed") %>% select(term, estimate)) %>%
+    mutate(term = recode(term, "seg_dur" = "visible_ref",
+                        "seg_dur:target_class2Visible only" = "vis_int",
+                       "target_class2Occluded only" = "occluded_main",
+                       "target_class2Visible and occluded" = "vishid_main",
+                       "seg_dur:target_class2Occluded only" = "occluded_int",
+                       "seg_dur:target_class2Visible and occluded" = "vishid_int",
+                       "(Intercept)" = "IC")) %>%
+  mutate(estimate = estimate + condval) %>%
+  select(grp, term, estimate) %>%
+  spread(term, estimate) %>%
+  mutate(vishid_slope = visible_ref + vishid_main + vishid_int,
+         occluded_slope = visible_ref + occluded_main + occluded_int) %>%
+  select(grp, IC, visible_ref, vishid_slope, occluded_slope) %>%
+  gather(key, slope, -IC, -grp) %>%
+  mutate(pg = slope / .25) %>%
+  arrange(pg)
+
+
+```
+```{r}
+p <- ggarrange(pursuitplot, ampref_trial, ncol = 2, align = "hv", common.legend = T, legend = "right") 
+
+p
+```
+```{r}
+ggsave(filename="jov_figures/pursuit_saccade_gain.pdf", plot=p, width=19, height = 9, units = "cm")
+
+```
+
+## Phase pursuit gain
+
+
+```{r}
+
+ref <- seg_data_uncut$pursuit %>%
+  filter(trial_type == "occluded_trial", target_class %in% c("visible", "occluded"),
+         ) %>%
+  mutate(target_class2 = case_when(
+    target_class == "visible" & !both_class ~ "Visible only",
+    target_class == "visible" & both_class ~ "Visible and occluded",
+    target_class == "occluded" & !both_class ~ "Occluded only",
+    T ~ "other"
+    )) %>% 
+  left_join(occlusion_starts) %>%
+  mutate(trial_ts = trial_ts - occl_start) %>%
+  mutate(trial_ts_begin = trial_ts - seg_dur)  %>%
+  gather(timevar, timeval, trial_ts_begin, trial_ts)
+
+(pg_v2 <- seg_data_uncut$pursuit %>%
+  filter(trial_type == "occluded_trial", target_class %in% c("visible", "occluded"),
+         ) %>%
+  mutate(target_class2 = case_when(
+    target_class == "visible" & !both_class ~ "Visible only",
+    target_class == "visible" & both_class ~ "Visible and occluded",
+    target_class == "occluded" & !both_class ~ "Occluded only",
+    T ~ "other"
+    )) %>% 
+  left_join(occlusion_starts) %>%
+  mutate(trial_ts = trial_ts - occl_start) %>%
+  mutate(trial_ts_begin = trial_ts - seg_dur) %>% 
+    rowwise %>%
+  mutate(mid_ts = mean(c(trial_ts, trial_ts_begin))) %>%
+    ungroup %>%
+    mutate(target_class2 = factor(target_class2, levels = c("Visible only", "Visible and occluded", "Occluded only"))) %>%
+  ggplot(aes(trial_ts, phase_speed / (pi/2), # beginning times of pursuit segments
+             color = target_class2,
+             group = interaction(participant, trial_number, seg_index))) +
+  geom_segment(aes(x = trial_ts_begin, y = phase_speed / (pi/2), 
+                   xend = trial_ts, yend = phase_speed / (pi/2)),
+               alpha = .3) +
+  scale_y_continuous(limits = c(0, 1.25), breaks = seq(0, 2, by = .5)) +
+  labs(x = "Time (s)", y = "Pursuit gain", color = "") +
+    geom_vline(xintercept = 0, alpha = .3, linetype = "dashed")  +
+  guides(color = guide_legend(override.aes = list(alpha = 1, size = 1)))  + 
+  scale_color_manual(values = c("Occluded only" = "#5966de", "Visible only" = "#3d9c67", "Visible and occluded" = "black")) +
+    geom_smooth(aes(timeval,  phase_speed / (pi/2), group = 1), inherit.aes = F, se = F, 
+                method = "loess", span = .5, linetype = "dashed", color = "black", size = .8, data = ref) +
+#  scale_color_manual(values = c("black", "darkred")) +
+  jov_theme )
 
 
 
+```
+
+```{r}
+ggsave(filename="jov_figures/pg_v2.pdf", plot=pg_v2, width=14, height = 8, units = "cm")
+```
+
+
+## Time series of euclidean, phase and radius offset
 
 ```{r}
 # linear interpolation for regular timestamps
@@ -395,7 +911,7 @@ ts <- df_trials %>%
   ungroup %>%
   select(participant, trial_number, occl_ts2, gt_abs_dist, phase_diff_unwrap, radius_diff)
 
-# set common starting ts for all trials. then use reglin on each participant+trial. then remove NAs 
+
 ts_interp <- ts %>%
   group_by(participant, trial_number) %>%
   group_modify(~reglin(.x$occl_ts2, .x$gt_abs_dist, xmin = min(ts$occl_ts2), deltat = 1/60, rule=1) %>% data.frame) %>%
@@ -429,14 +945,6 @@ refdata <- df_trials %>%
   mutate(tangent_x = -(ic - tangent_y) / (slope_start))  # find x values of tangent
 
 
-refdata %>%
-  ggplot(aes(target_x, target_y)) + geom_path() +
-  geom_path(aes(tangent_x, tangent_y))
-
-refdata %>%
-  gather(var, value, tangent_x, tangent_y) %>%
-  ggplot(aes(trial_ts, value, color = var)) + geom_line()
-
  
 reflines <- refdata %>%
    mutate(dis_magn = sqrt((gaze_start_x - target_x)^2 + (gaze_start_y - target_y)^2),
@@ -444,8 +952,6 @@ reflines <- refdata %>%
           tan_magn = sqrt((tangent_x - target_x)^2 + (tangent_y - target_y)^2)) %>%
   mutate(dis_phase = gaze_start_phase - unwrap_target_phase_R,
          tan_phase = atan2(tangent_x, tangent_y) + 2*pi - unwrap_target_phase_R,
-       #  dis_radius = gaze_start_radius - target_radius,
-       #  cen_radius = 0 - target_radius,
          tan_radius = sqrt((tangent_x)^2 + (tangent_y)^2) - target_radius)
 
 reflines_magn <- reflines %>%
@@ -455,23 +961,24 @@ reflines_magn <- reflines %>%
                           tan_magn = "Tangent"))
 
 
-# first take MEDIAN for each timestamp (instead of geometric mean, due to hassle with negative values)
-# rolling mean 
+# first take median, then rolling mean 
 
 diff1 <- ts_interp %>%
   group_by(participant, occl_ts2) %>%
   summarise(gt_abs_dist = median(gt_abs_dist)) %>%
   group_by(participant) %>%
   arrange(participant, occl_ts2) %>%
-  mutate(GM = rollmean(gt_abs_dist, k=25, fill=NA, align="center")) %>% 
+  mutate(GM = rollmean(gt_abs_dist, k=15, fill=NA, align="center")) %>% 
   ungroup %>%
   filter(!is.na(GM)) %>%
-    ggplot(aes(occl_ts2, GM)) +  geom_line(aes(color = participant), size = 1, alpha = .8) +
-  geom_vline(xintercept = 0, alpha = .3) +
+    ggplot(aes(occl_ts2, GM)) +  
+    geom_vline(xintercept = 0, alpha = .3, linetype = "dashed")  +  
+  geom_line(aes(color = participant), size = 1, alpha = .8) +
   geom_line(data = reflines_magn, aes(occl_ts, value, linetype = refline %>% fct_rev)) +
-  labs(x = "Time (s)", y = "Euclidean distance (degrees)", linetype = "Reference line", color = "Participant") +
+  labs(x = "Time (s)", y = "Euclidean distance\n(degrees)", linetype = "Reference line", color = "Participant") +
   scale_color_d3() +
-  scale_y_continuous(limits = c(0, 35)) +
+  scale_y_continuous(limits = c(0, 30)) +
+  scale_x_continuous(limits = c(-.5, 3)) +
   jov_theme
 
 ```
@@ -497,15 +1004,17 @@ diff2 <- ts_interp_phase %>%
   summarise(phase_diff_unwrap = median(phase_diff_unwrap)) %>%
   group_by(participant) %>%
   arrange(participant, occl_ts2) %>%
-  mutate(GM = rollmean(phase_diff_unwrap, k=25, fill=NA, align="center")) %>%
+  mutate(GM = rollmean(phase_diff_unwrap, k=15, fill=NA, align="center")) %>%
   ungroup %>%
   filter(!is.na(GM)) %>%
-  ggplot(aes(occl_ts2, GM)) +  geom_line(aes(color = participant), size = 1, alpha = .8) +
-  geom_vline(xintercept = 0, alpha = .3) +
+  ggplot(aes(occl_ts2, GM)) +  
+    geom_vline(xintercept = 0, alpha = .3, linetype = "dashed")  +  
+  geom_line(aes(color = participant), size = 1, alpha = .8) +
   geom_line(data = reflines_phase, aes(occl_ts, value, linetype = refline %>% fct_rev)) +
-  labs(x = "Time (s)", y = "Phase difference (turns)", linetype = "Reference line", color = "Participant") +
+  labs(x = "Time (s)", y = "Phase difference\n(turns)", linetype = "Reference line", color = "Participant") +
   scale_color_d3() + 
-  scale_y_continuous(labels = formatterphase, breaks = seq(-.75, .25, by = .25)*2*pi, limits = c(-2.5, .5)) +
+  scale_y_continuous(labels = formatterphase, breaks = seq(-.75, .25, by = .25)*2*pi, limits = c(-2.4, .5)) +
+  scale_x_continuous(limits = c(-.5, 3)) +
   jov_theme
 
 
@@ -532,332 +1041,429 @@ diff3 <- ts_interp_radius %>%
   summarise(radius_diff = median(radius_diff)) %>%
   group_by(participant) %>%
   arrange(participant, occl_ts2) %>%
-  mutate(GM = rollmean(radius_diff, k=25, fill=NA, align="center")) %>%
+  mutate(GM = rollmean(radius_diff, k=15, fill=NA, align="center")) %>%
   ungroup %>%
   filter(!is.na(GM)) %>%
-    ggplot(aes(occl_ts2, GM)) +  geom_line(aes(color = participant), size = 1, alpha = .8) +
-  geom_vline(xintercept = 0, alpha = .3) +
+    ggplot(aes(occl_ts2, GM)) +  
+    geom_vline(xintercept = 0, alpha = .3, linetype = "dashed")  +  
+  geom_line(aes(color = participant), size = 1, alpha = .8) +
   geom_line(data = reflines_radius, aes(occl_ts, value, linetype = refline %>% fct_rev)) +
-  labs(x = "Time (s)", y = "Radius difference (degrees)", linetype = "Reference line", 
+  labs(x = "Time (s)", y = "Radius difference\n(degrees)", linetype = "Reference line", 
        color = "Participant") +
-  scale_y_continuous(limits = c(-13.5, 13.5)) +
+  scale_y_continuous(limits = c(-8, 11.5)) +
+  scale_x_continuous(limits = c(-.5, 3)) +
   scale_color_d3() +
   jov_theme
 
 ```
 
 ```{r}
-diff_plots <- ggarrange(diff1 + xlab("") + theme(axis.text.x=element_blank()), 
+(diff_plots <- ggarrange(diff1 + xlab("") + theme(axis.text.x=element_blank()), 
                         diff2 + xlab("") + theme(axis.text.x=element_blank()), 
                         diff3, 
-                        common.legend = T, ncol = 1, legend = "right", align = "hv")
-
-```
-```{r}
-ggsave(filename="jov_figures/diff_panels.pdf", plot=diff_plots, width=18, height = 17, units = "cm")
-```
-
-
-# saccade latencies
-
-```{r}
-slat <- saccades %>%
-  filter(timept == "launch", first_saccade) %>%
-  ggplot(aes(x=occl_ts, y=..density..)) + 
-#  geom_histogram(color = "black", fill = NA, boundary = 0, binwidth = .03) + 
-  stat_bin(aes(y=..density..), geom="step", binwidth = .03, size = 1, boundary = 0) +
-  labs(x = "Time (s)", y = "Density") + jov_theme
-
-ggsave(filename="jov_figures/saccade_lat.pdf", plot=slat, width=10, height = 8, units = "cm")
-```
-
-# Phase pursuit gain
-
-
-```{r}
-occlusion_starts <- df_trials %>%
-  group_by(participant, trial_number) %>%
-  filter(occl_ts == 0) %>%
-  select(participant, trial_number, trial_ts) %>%
-  rename(occl_start = trial_ts)
-
-pgain <- seg_data$pursuit %>% 
-  full_join(occlusion_starts) %>%
-  mutate(trial_ts = trial_ts - occl_start) %>%
-  group_by(participant, trial_number, seg_index) %>%
-  mutate(split_seg = n_distinct(target_class) > 1) %>% 
-  ggplot(aes(trial_ts - seg_dur, phase_speed / (pi/2), # beginning times of pursuit segments
-             color = split_seg,
-             group = interaction(participant, trial_number))) +
-  geom_point(alpha = .1, size = 1.5, show.legend = F) +
-  scale_y_continuous(limits = c(0, 2)) +
-  labs(x = "Time (s)", y = "Pursuit gain") +
-  geom_vline(xintercept = 0, alpha = .3) +
-  scale_color_manual(values = c("black", "darkred")) +
-  jov_theme
-
-ggsave(filename="jov_figures/pgain.pdf", plot=pgain, width=10, height = 8, units = "cm")
+                        common.legend = T, ncol = 1, legend = "right", align = "hv"))
 
 ```
 
-# phase angle change over time
+```{r}
+ggsave(filename="jov_figures/diff_panels.pdf", plot=diff_plots, width=19, height = 14, units = "cm")
+```
+
+*Calculated by taking the participant-wise median of linearly interpolated time series. Lines smoothed by rolling mean (window width 0.24 s).*
+
+
+
+## Phase and radius SD over time
+
+the phase difference showed clear increase in variance over time:  after theinitial 0.5 seconds, the phase difference SD increased at about 0.025 turns per second (LMM of phase difference SD predicted by time,with random intercept and slope by participant; p ¡ .001, *t(9) = 6.018* by Satterthwaite’s degree of freedom method). *Based on the random effects of the model, the slopes for participants varied between 0.01 and 0.04 turns per second.* 
+
+
 
 ```{r}
-int_data %>% 
-  arrange(participant, trial_number, target_class, cond_ts, seg)
 
+r <- lmerTest::lmer(value ~ ts + (ts|participant), data = sddata %>% 
+  gather(var, value, ends_with("std")) %>%
+  filter(var == "phase_std") %>%
+  filter(n_valid >= 5) %>%
+    mutate(value = value/(2*pi)))
+
+
+summary(r)
+
+
+lme4::ranef(r) %>%
+  data.frame() %>%
+  filter(term == "ts") %>%
+  mutate(ts_slope = lme4::fixef(r)[2] + condval)
 ```
 
 
 ```{r}
 
-plot_phase_int <- function(cond) {
-  
-# namelabel <- function(x) {
-#   paste0("participant ", x)
-# }
-
-p <-  int_data %>%
-    mutate(target_class = str_to_title(target_class)) %>%
-  filter(target_class == cond) %>%
-  spread(seg, cumulative_phasedist) %>% 
-  mutate(saccade = ifelse(is.na(saccade), 0, saccade)) %>%
-  ggplot(aes(group = interaction(participant, trial_number))) +
-  geom_ribbon(aes(cond_ts, ymin = pursuit, ymax = pursuit + saccade, fill = "Saccade"), alpha = .03)  +
-  geom_ribbon(aes(cond_ts, ymin = 0, ymax = pursuit, fill = "Smooth pursuit"), alpha = .03) +
-  geom_line(aes(cond_ts, total_cphasedist, group = interaction(participant, trial_number)), alpha = .1, inherit.aes = F) +
-  #            aes(cond_ts, cumulative_phasedist), alpha = .8) +
-  geom_line(aes(cond_ts, cond_ts * (pi/2)), linetype = "dashed", color = "white",
-            size=1, inherit.aes = F) +
-#  facet_wrap(~participant, labeller = labeller(participant = namelabel), ncol = 2)  +
-  labs(title = str_to_title(cond),
-       #subtitle = "Cumulative phase angle change by saccades/pursuits",
-       y = "Cumulative phase (turns)",
-       x = "Time (s)", color = "", fill = "") +
-#  geom_smooth(aes(cond_ts, cumulative_phasedist, color = seg), inherit.aes = F,
-#              method = "lm", se = F, linetype = "dashed") +
-#  scale_fill_manual(values = c("Pursuit" = "#1F77B4FF", "Saccade" = "#FF7F0EFF")) +
-    scale_fill_manual(breaks=c(color_breaks),
-                       values = c(color_vals),
-                     drop = F) + 
-  scale_y_continuous(labels = formatterphase, breaks = seq(0, 2, by = .25)*2*pi, limits = c(0, 5)) +
-  scale_x_continuous(limits = c(0,3)) +
-  guides(fill = guide_legend(override.aes = list(alpha = 1))) +
-  jov_theme
-
-p
-}
-
-
-phaseplots <- lapply(c("Visible", "Hidden"), plot_phase_int)
-
-phaseplots[[2]] <- phaseplots[[2]] + labs(y = "")  + theme(axis.text.y=element_blank())
-
-phase_covered <- ggarrange(plotlist = phaseplots, common.legend = T, ncol = 2, legend = "bottom", align = "hv") 
-
-phase_covered
-
-
-```
-
-```{r}
-
-ggsave(filename="jov_figures/total_phase.pdf", plot=phase_covered, width=19, height = 9, units = "cm")
-
-```
-
-
-# saccade frequency & amplitude
-```{r}
-
-# reference line: if saccade amplitude is X, how many saccades per second are needed to cover the tracking (at a given pursuit gain)?
-# X = (2*radius^2 − amp^2) / (2*radius^2)
-# angle A = acos(X) radians
-
-# circle moves at pi/2 radians/s. therefore, with angle A, speed/A saccades are needed per second (for purely saccadic tracking).
-
-
-ref_freq <- function(amp, pg) { # pg = pursuit gain from 0 (pure saccadic) to 1 (pure pursuit)
-  radius = 13.5
-  obj_speed = pi/2
-  sacc_speed = obj_speed - (pg*obj_speed)
-  
-  X <- (2*radius^2 - amp^2) / (2*radius^2)
-  A <- acos(X)
-
-  # circle moves at 1.57 radians/s. therefore, with angle A, speed/A saccades are needed per second.
-  sacc_speed/A
-}
-
-```
-
-```{r}
-# get values for PG from observed amplitude & frequency data:
-
-trial_saccades_cut %>%
-  mutate(ampX = (2*13.5^2 - median_dist^2) / (2*13.5^2),
-         ampA = acos(ampX)) %>%
-  mutate(sacc_speed = freq*ampA, # formulas derived from above: gaze_speed = freq*ampA
-         pg = ((pi/2) - sacc_speed)/(pi/2)) %>% #  pg = (obj_speed - sacc_speed)/(obj_speed)
-  group_by(target_class) %>%
-  summarise(median(pg, na.rm=T))
-
-# use median PG for each condition to plot reference lines
-amp_ref <- tibble(amp = seq(0.1, 15, .2), freq_pg0 = ref_freq(amp, 0), freq_pg.4 = ref_freq(amp, .46),
-                  freq_pg.9 = ref_freq(amp, .9))
-         
-```
-
-NOTE: PG in hidden is probably higher because of the first ~0.5 s included.
-
-```{r}
-freq_amp <- trial_saccades_cut %>%
-  mutate(target_class = str_to_title(target_class)) %>%
-  group_by(participant, target_class) %>%
-  mutate(freq_part = median(freq),
-         dist_part = median(median_dist)) %>%
-  ggplot(aes(freq, median_dist, color = target_class %>% fct_rev)) + 
-  geom_point(alpha = .6)  +
-  geom_point(aes(freq_part, dist_part, fill = target_class %>% fct_rev), 
-             color = "black", size = 2, shape = 21, show.legend = F) +
-#  geom_line(aes(freq_part, dist_part, group = participant), inherit.aes = F, alpha = .3) +
-  geom_line(aes(freq_pg0, amp, linetype = "0.00"), inherit.aes = F, data = amp_ref) +
-  geom_line(aes(freq_pg.4, amp, linetype = "0.46"), inherit.aes = F, data = amp_ref) +
-  geom_line(aes(freq_pg.9, amp, linetype = "0.90"), inherit.aes = F, data = amp_ref) +
-#  annotate("text", x = 4, y = .1, label = "PG .90", size = 3.6) +
-#  annotate("text", x = 6.5, y = 1.4, label = "PG .46", size = 3.6) +
-#  annotate("text", x = 6.6, y = 2.6, label = "PG 0", size = 3.6) +
-  guides(color = guide_legend(override.aes = list(alpha = 1, size = 3))) +
-  scale_y_continuous(limits = c(0,20)) +
-  scale_x_continuous(limits = c(0,7)) +
-  labs(x = "Frequency (saccades/s)", y = "Median saccade amplitude (degrees)", color = "Object") +
-  scale_linetype_manual(values = c("0.00" = "dotted", "0.46" = "dashed", "0.90" = "solid"),
-                        name = "Pursuit gain") +
-    scale_fill_manual(breaks=c(color_breaks),
-                       values = c(color_vals),
-                     drop = F) + 
-    scale_color_manual(breaks=c(color_breaks),
-                       values = c(color_vals),
-                     drop = F) +
-  jov_theme 
-# 
-# trial_saccades_cut %>%
-#   group_by(participant, target_class) %>%
-#   mutate(freq_part = median(freq),
-#          dist_part = median(median_dist)) %>%
-#   ggplot(aes(freq, median_dist, color = target_class %>% fct_rev)) + 
-#   geom_point(alpha = .2)  +
-#   geom_point(aes(freq_part, dist_part, fill = target_class %>% fct_rev), color = "black", size = 2, shape = 21, show.legend = F) +
-#   geom_line(aes(freq_part, dist_part, group = participant), inherit.aes = F, alpha = .3) +
-#   geom_line(aes(freq_pg.4, amp), inherit.aes = F, data = amp_ref) +
-#   geom_line(aes(freq_pg.9, amp), inherit.aes = F, data = amp_ref) +
-#   theme_bw() +
-# #  scale_color_manual(values = color_vals) +
-# #  scale_fill_manual(values = color_vals) +
-#   guides(color = guide_legend(override.aes = list(alpha = 1, size = 3))) +
-#   scale_y_continuous(limits = c(0,20)) +
-#   scale_x_continuous(limits = c(0,7)) +
-#   labs(x = "Frequency (saccades/s)", y = "Median saccade amplitude", color = "") +
-#   scale_color_d3() +
-#   scale_fill_d3() 
-
-
-```
-
-```{r}
-
-ggsave(filename="jov_figures/freq_amp.pdf", plot=freq_amp, width=14, height = 10, units = "cm")
-
-```
-
-
-```{r}
-with(trial_saccades, cor.test(median_dist, median_phasedist))
-
-```
-
-# phase difference: saccade launch/landing points
-
-```{r}
-
-
-ggplot() + 
-    geom_histogram(data = d,aes(x = x),breaks = seq(-4,4,by=.5),
-                                 color = "red",fill = "transparent") + 
-    geom_step(data = d1,aes(x = x,y = y),stat = "identity")
-
-
-saccade_ll <- saccades %>% 
-  filter(!first_saccade) %>% 
-  filter(signtype == "cue", !is.na(timept), trial_type == "occluded_trial", 
-         target_class == "hidden") %>%
-  mutate(timept = str_to_title(timept)) %>%
-  ggplot(aes(x = phase_diff_unwrap, y = ..density.., color = timept %>% fct_rev)) + 
-#  geom_histogram(binwidth=.05, position = "identity", alpha = .8)  + 
-  geom_vline(aes(xintercept = 0), alpha = .7, color = "darkgrey") +
-  stat_bin(aes(y=..density..), geom="step", binwidth = .05, size = 1, alpha = .8) +
-  annotate(geom = "text", x = .25, y = -.015, label = "Lead", color = "darkgrey", alpha = 1) +
-  annotate(geom = "text", x = -.21, y = -.015, label = "Lag", color = "darkgrey", alpha = 1) +  
-  labs(color = "",
-       x = "Phase difference (turns)", y = "Density") +
-    scale_color_manual(values = c("Launch" = "#FF7F2EFF", "Landing" = "#D62728FF")) + 
-  scale_x_continuous(labels = formatterphase, breaks = seq(-2, 2, by = .25)*2*pi, limits = c(-2,2)) +
-  jov_theme
-
-```
-
-```{r}
-ggsave(filename="jov_figures/saccade_ll.pdf", plot=saccade_ll, width=14, height = 8, units = "cm")
-
-```
-
-
-numbers: median phase differences for first saccades & other saccades
-
-
-
-# time series: avg phase difference per participant at launch/landing
-
-```{r}
-saccades %>%
-  ggplot(aes(trial_ts, phase_diff_unwrap, color = timept)) + geom_point(alpha = .6) +
-  facet_wrap(~participant)
-
-```
-
-# Phase and radius SD over time
-
-```{r}
 
 phasesd <- sddata %>% 
   gather(var, value, ends_with("std")) %>%
   filter(var == "phase_std") %>%
   filter(n_valid >= 5) %>%
-  ggplot(aes(ts, value, color = factor(participant))) +  # no phase formatter needed here
-  geom_line() +
-#  facet_wrap(~var, scales = "free_y", strip.position = "left", ncol= 1) + 
-  labs(x = "", color = "Participant", y = "Phase difference SD (turns)") +
+  group_by(ts) %>%
+  mutate(mean_value = mean(value, na.rm=T),
+            n = n()) %>%
+  mutate(mean_value = ifelse(n < 10, NA, mean_value)) %>%
+  ggplot(aes(ts, value, color = factor(participant))) +  
+  geom_line(alpha = .5, size  = .9) +
+  geom_line(aes(ts, mean_value), inherit.aes = F, size = 1, linetype = "longdash") +
+  labs(x = "", color = "Participant", y = "Phase difference SD\n(turns)") +
   jov_theme  +
   scale_color_d3() +
-  theme(axis.text.x=element_blank()) 
+  theme(axis.text.x=element_blank()) +
+   scale_y_continuous(labels = formatterphase, breaks = seq(0, .12, by = .02)*2*pi) +
+    guides(color = guide_legend(override.aes = list(alpha = 1, size = 1)))
 
 radiussd <- sddata %>% 
   gather(var, value, ends_with("std")) %>%
   filter(var == "radius_std") %>%
   filter(n_valid >= 5) %>%
-  ggplot(aes(ts, value, color = factor(participant))) +  # no phase formatter needed here
-  geom_line() +
+  group_by(ts) %>%
+  mutate(mean_value = mean(value, na.rm=T),
+            n = n()) %>%
+ mutate(mean_value = ifelse(n < 10, NA, mean_value)) %>%
+  ggplot(aes(ts, value, color = factor(participant))) + 
+  geom_line(alpha = .5, size = .9) +
 #  facet_wrap(~var, scales = "free_y", strip.position = "left", ncol= 1) + 
-  labs(x = "Time (s)", color = "Participant", y = "Radius difference SD (degrees)") +
+#  geom_line(aes(ts, mean_value), inherit.aes = F, size = 1, linetype = "longdash") +
+    geom_line(aes(ts, mean_value), inherit.aes = F, size = 1, linetype = "longdash") +
+  labs(x = "Time (s)", color = "Participant", y = "Radius difference SD\n(degrees)") +
   scale_color_d3() +
-  jov_theme 
+  jov_theme  +
+    guides(color = guide_legend(override.aes = list(alpha = 1, size = 1))) 
 
 p <- ggarrange(phasesd, radiussd, ncol = 1, align = "hv", common.legend = T, legend = "right") 
 
 p
 ```
+
 ```{r}
-ggsave(filename="jov_figures/phase_radius_sd.pdf", plot=p, width=19, height = 14, units = "cm")
+ggsave(filename="jov_figures/phase_radius_sd.pdf", plot=p, width=19, height = 10, units = "cm")
 
 ```
+
+## Appendices
+
+### pre-test
+
+```{r}
+dfall <- arrow::read_feather("C:/Users/Tuisku/Documents/GitHub/tuisku/phd/1stexp_analysis/data/segments_all.feather")
+
+unique(dfall$scenario)
+
+
+dfall <- dfall %>%
+  filter(scenario == "peripheralVisionTest") %>% 
+  select(participant, ts, conf, gazeX:target_y, is_visible:trial_number, gazeX_s:end_seg_class) %>%
+  mutate(is_cue = if_else(signtype == "cue", 1, 0),
+         is_target = if_else(signtype == "target", 1, 0),
+         is_success = if_else(signtype == "success", 1, 0)) %>%   
+  mutate(is_trial = (is_cue == 1) | (is_target == 1)) # is_trial => trial without response, query, feedback
+
+dfall <- dfall %>%
+  group_by(participant) %>%
+  mutate(is_gap = (ts - lag(ts)) > 2,
+         is_gap = replace(is_gap, row_number() == 1, FALSE)) %>%
+  group_by(participant, is_gap) %>%
+  arrange(participant, ts) %>%
+  mutate(seg_fill = lag(begin_seg_class)) %>%
+  mutate(seg_fill = if_else(is.na(seg_fill), end_seg_class, seg_fill)) %>%
+  fill(seg_fill) %>%
+  mutate(seg_fill = if_else(is_gap, NA_real_, seg_fill)) %>%
+  ungroup  %>%
+    mutate(trial_gap = is.na(trial_number)) %>%
+  group_by(participant, trial_number) %>%
+  mutate(trial_type = ifelse(mean(is_visible) == 1, 
+                             "visible_trial", "occluded_trial"),
+         success_trial = max(is_success)) %>%
+  filter(!is.na(trial_number)) %>%
+    mutate(fixpoint_dist = sqrt(target_x^2 + target_y^2)) %>%
+  mutate(screen_quadrant = case_when((target_x > 0) & (target_y > 0) ~ "Top right",
+                                     (target_x > 0) & (target_y < 0) ~ "Bottom right",
+                                     (target_x < 0) & (target_y > 0) ~ "Top left",
+                                     (target_x < 0) & (target_y < 0) ~ "Bottom left",
+                                     TRUE ~ NA_character_)) 
+```
+
+
+
+
+supplementary result: participantwise correct answer percent in the pre-test (bar chart) (shows that our participants understand theprimary task)
+
+```{r}
+pretest_rates <- dfall %>%
+  mutate(participant = factor(participant)) %>%
+  group_by(participant, trial_number) %>%
+  summarise(success = mean(success_trial)) %>% 
+  summarise(success_rate = mean(success),
+            successes = sum(success),
+            trials = n()) %>%
+  ungroup %>%
+  mutate(correct_trials = paste0(successes, '/', trials)) %>%
+  ggplot(aes(participant, success_rate)) + 
+  geom_hline(aes(yintercept = .25), linetype = "dashed", alpha = .4) +  
+  geom_col(alpha = .5) + 
+  geom_text(aes(label = paste0(100*round(success_rate,2), "%\n(", correct_trials, ")"))) +
+  labs(x = "Participant", y = "Success rate") +
+  scale_y_continuous(labels = scales::percent, limits = c(0,1)) +
+  jov_theme
+
+```
+```{r}
+ggsave(filename="jov_figures/pretest_rates.pdf", plot=pretest_rates, width=16, height = 8, units = "cm")
+```
+
+
+
+supplementary result: participantwise correct answer percent in the pre-test as a function of distance from fixation cross (bar chart)(shows how our (para)foveal discrimination primary task works)
+
+
+
+```{r}
+success_rates_dist <- dfall %>%
+  filter(is_target == 1) %>%
+  group_by(participant, trial_number) %>%
+  filter(row_number() == max(row_number())) %>%
+  mutate(fixpoint_dist = round(fixpoint_dist, 3)) %>%
+  group_by(participant, trial_number, fixpoint_dist) %>%
+  distinct(success_trial) %>% # n = 500 correct
+  ungroup(trial_number) %>%
+  summarise(success_rate = mean(success_trial),
+            successes = sum(success_trial),
+            trials = n()) %>%
+  ungroup 
+
+
+
+# distribution of target points:
+dfall %>%
+  filter(is_target == 1) %>%
+  group_by(participant, trial_number) %>%
+  filter(row_number() == max(row_number())) %>%
+  ggplot(aes(target_x, target_y, colour = screen_quadrant)) + geom_point(alpha = .5) +
+  geom_text(data = success_rates_dist %>% distinct(fixpoint_dist), 
+            aes(x = 0, y = fixpoint_dist, label = fixpoint_dist), size = 4.8, inherit.aes = F) +
+  geom_point(aes(x = 0, y = 0), color = "black") +
+  theme_classic() +
+  coord_fixed() +
+  labs(colour = "Screen quadrant", title = "Distribution of target locations") + 
+  guides(colour = guide_legend(override.aes = list(alpha = 1)))
+```
+```{r}
+pretest_dist <- success_rates_dist %>%
+  mutate(correct_trials = paste0(successes, '/', trials)) %>%
+  ggplot(aes(fixpoint_dist, success_rate)) + geom_col(alpha = 0.5) +
+  geom_hline(aes(yintercept = .25), linetype = "dashed", alpha = .4) +  
+  facet_wrap(~participant, labeller = label_both, ncol = 5) +
+#  geom_text(aes(label = paste0(100*round(success_rate,2), "%\n(", correct_trials, ")"))) +
+  scale_x_continuous(breaks = unique(success_rates_dist$fixpoint_dist)) +
+  scale_y_continuous(labels = scales::percent, limits = c(0,1)) +
+  labs(x = "Distance from fixation cross (degrees)", y = "Success rate") +
+  jov_theme +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) 
+
+
+```
+
+```{r}
+ggsave(filename="jov_figures/pretest_dist.pdf", plot=pretest_dist, width=17, height = 9, units = "cm")
+```
+
+
+supplementary result: partitipantwise correct and incorrect answers by position relative to fixation cross in the pre-test (scatter plot)(shows how our (para)foveal discrimination primary task works)
+
+```{r}
+pretest_pos <- dfall %>%
+  filter(is_target == 1) %>%
+  mutate(success_trial = recode(success_trial, `1` = "Correct", `0` = "False")) %>%
+  group_by(participant, trial_number) %>%
+  filter(row_number() == max(row_number())) %>%
+  ggplot(aes(target_x, target_y, colour = factor(success_trial))) + 
+  geom_hline(yintercept = 0, alpha = .5) +
+  geom_vline(xintercept = 0, alpha = .5) +
+  geom_point(alpha = .6, size = 1.8) +
+  facet_wrap(~participant, labeller = label_both, ncol = 5) +
+  labs(x = "X (degrees)", y = "Y (degrees)", color = "") +
+  coord_fixed() +
+  jov_theme
+
+```
+
+```{r}
+ggsave(filename="jov_figures/pretest_pos.pdf", plot=pretest_pos, width=17, height = 8, units = "cm")
+```
+
+### circle task
+
+supplementary result:  participantwise correct answer percent as a function of phase (bar chart) (shows that the distribution is notskewed e.g. to the major axes of the screen)
+
+```{r}
+df_trials %>% 
+  filter(participant == 1, trial_number == 174) %>%
+  ggplot(aes(target_x, target_y, color = target_phase_R)) + geom_path(size=3, lineend = "round") + 
+  scale_color_gradient2() +
+  theme_bw() +
+  coord_fixed() + labs(title = "Values of phase variable", color = "")
+
+```
+
+```{r}
+target_phases <- df_trials %>%
+  filter(target_class == "Target", trial_type != "visible_trial") %>%
+  group_by(participant, trial_number, success_trial) %>%
+  mutate(target_phase = median(target_phase_R)) %>%
+  ungroup %>%
+  mutate(target_phase_bin = cut_interval(target_phase, 5)) %>% 
+  # group_by(participant) %>%
+  # mutate(target_phase_bin = cut_number(target_phase, 7)) %>%
+  group_by(participant, target_phase_bin) %>%
+  mutate(success_rate = mean(success_trial),
+            successes = sum(success_trial),
+            trials = n()) %>%
+  ungroup %>%
+  mutate(ycoord = target_y * success_rate,
+         xcoord = target_x * success_rate)
+
+(phase_rates <- target_phases %>%
+  right_join(target_phases %>% expand(target_phase, participant)) %>%
+  group_by(target_phase) %>%
+  mutate(target_x = mean(target_x, na.rm =T),
+          target_y = mean(target_y, na.rm = T)) %>%
+  arrange(participant, target_phase) %>%
+  ggplot(aes(xcoord, ycoord, group = target_phase_bin)) + geom_path(size=.8) + 
+  geom_path(aes(target_x, target_y, group = 1), color = "grey") +
+  geom_point(aes(0, 0), pch = 3, color = "grey") +
+  scale_y_continuous(breaks = c(-13.5, 0, 13.5), labels = c("100", "0", "100"), limits = c(-14, 14)) +
+  scale_x_continuous(breaks = c(0, 13.5), labels = c("0", "100"), limits = c(-14, 14)) +
+  labs(x = "Success rate (%)", y = "Success rate (%)") +
+  jov_theme +
+  facet_wrap(~participant, labeller = label_both, ncol = 5) +
+  coord_fixed())
+
+```
+
+```{r}
+ggsave(filename="jov_figures/phase_rates.pdf", plot=phase_rates, width=17, height = 8, units = "cm")
+```
+
+
+```{r}
+target_phases <- df_trials %>%
+  filter(target_class == "Target") %>%
+  group_by(participant, trial_number, success_trial, trial_type == "occluded_trial") %>%
+  summarise(target_phase = median(target_phase_R)) %>%
+  ungroup %>%
+  mutate(target_phase_bin = cut_interval(target_phase, 4)) %>% 
+  group_by(target_phase_bin) %>%
+  mutate(target_phase_bound = min(target_phase)) %>%
+  group_by(participant, target_phase_bin, target_phase_bound) %>%
+  summarise(success_rate = mean(success_trial),
+            successes = sum(success_trial),
+            trials = n()) %>%
+  ungroup 
+
+
+
+target_phases %>%
+  ggplot(aes(target_phase_bound, success_rate)) + 
+  geom_hline(aes(yintercept = .25), linetype = "dashed", alpha = .4) +  
+  geom_col(alpha = .7) + 
+  facet_wrap(~participant, labeller = label_both, ncol = 5) +
+  labs(x = "Phase (turns)", y = "Success rate") +
+  scale_y_continuous(labels = scales::percent, limits = c(0,1)) +
+  scale_x_continuous(breaks = unique(target_phases$target_phase_bound), 
+                     labels = round(unique(target_phases$target_phase_bound) / (2 * pi), 2)) +
+#  geom_text(aes(label = paste0(successes, "/", trials))) +
+  jov_theme +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) 
+```
+
+
+supplementary  result:  participantwise  pursuit  and  fixation  durations  (intersaccadic  intervals)  in  visible  and  hidden  conditions(curves with shaded area under curve) (shows that even very long pursuits occur, but not frequently)
+
+```{r}
+(pursuit_dur <- seg_data_uncut$pursuit_timeseries %>%
+  filter(trial_type == "occluded_trial", target_class %in% c("visible", "occluded")) %>%
+  mutate(target_class2 = case_when(
+    target_class == "visible" & !both_class ~ "Visible only",
+    target_class == "visible" & both_class ~ "Visible and occluded",
+    target_class == "occluded" & !both_class ~ "Occluded only",
+    T ~ "other"
+    )) %>% 
+    mutate(target_class2 = factor(target_class2, levels = c("Visible only", "Visible and occluded", "Occluded only"))) %>%
+   mutate(target_class = str_to_title(target_class)) %>%
+   filter(target_class2 != "Visible and occluded") %>%
+  ggplot(aes(seg_dur, fill = target_class)) + geom_density(alpha = .65) +
+  facet_wrap(~participant, labeller = label_both, ncol = 5) +
+  labs(x = "Pursuit/fixation duration (s)", y = "Density", fill = "") +
+  scale_fill_manual(values = c("Occluded" = "#5966de", "Visible" = "#3d9c67")) +
+  jov_theme)
+
+```
+```{r}
+ggsave(filename="jov_figures/pursuit_distr.pdf", plot=pursuit_dur, width=17, height = 8, units = "cm")
+```
+
+supplementary result: participantwise saccade landing point pseudotimeseries, for both radius against time and phase against time,from occlusion onset; flag first saccades in a different color (shows the first-saccade behavior similar to the orban results in more detail,and also shows the tendency to go ”inside” the circle)
+
+
+```{r}
+radts <- saccades %>% 
+  filter(timept == "landing", trial_type == "occluded_trial", target_class %in% c("Visible", "Occluded")) %>%
+  mutate(timept = str_to_title(timept) %>% fct_rev) %>%
+  left_join(occlusion_starts) %>%
+  mutate(trial_ts = trial_ts - occl_start) %>%
+  mutate(first_saccade = ifelse(is.na(first_saccade), FALSE, first_saccade)) %>%
+  mutate(fs_points = ifelse(first_saccade, radius_diff, NA)) %>%
+  mutate(rad_points = ifelse(!first_saccade, radius_diff, NA)) %>%
+  filter(trial_ts >= -0.5) %>%
+  ggplot(aes(trial_ts, rad_points)) +
+  geom_hline(yintercept = 0) +
+  geom_vline(xintercept = 0, linetype = "dashed") +
+  geom_point(alpha = .3) +
+  geom_point(aes(trial_ts, fs_points, color = "First saccade"), show.legend = F, alpha = .3) +
+  scale_color_manual(values = c("First saccade" = "darkmagenta"),
+                     guide = guide_legend(override.aes = list(alpha = 1))) + 
+  scale_y_continuous(limits = c(-10, 10)) +
+  labs(color = "", x = "Time (s)", y = "Radius difference (degrees)") +
+  facet_wrap(~participant, labeller = label_both, ncol = 5) +
+  jov_theme
+
+
+phasets <- saccades %>% 
+  filter(timept == "landing", trial_type == "occluded_trial", target_class %in% c("Visible", "Occluded")) %>%
+  mutate(timept = str_to_title(timept) %>% fct_rev) %>%
+  left_join(occlusion_starts) %>%
+  mutate(trial_ts = trial_ts - occl_start) %>%
+  mutate(first_saccade = ifelse(is.na(first_saccade), FALSE, first_saccade)) %>%
+  mutate(fs_points = ifelse(first_saccade, phase_diff_unwrap, NA)) %>%
+  mutate(phase_points = ifelse(!first_saccade, phase_diff_unwrap, NA)) %>%
+  filter(trial_ts >= -0.5) %>%
+  ggplot(aes(trial_ts, phase_points)) + 
+  geom_hline(yintercept = 0) +
+  geom_vline(xintercept = 0, linetype = "dashed") +
+  geom_point(alpha = .3) +
+  geom_point(aes(trial_ts, fs_points, color = "First saccade"), show.legend = F, alpha = .3) +
+  scale_color_manual(values = c("First saccade" = "darkmagenta"),
+                     guide = guide_legend(override.aes = list(alpha = 1))) + 
+  scale_y_continuous(labels = formatterphase, breaks = seq(-2, 2, by = .2)*2*pi, limits = c(-2,2)) +
+  labs(color = "", x = "Time (s)", y = "Phase difference (turns)") +
+  facet_wrap(~participant, labeller = label_both, ncol = 5) +
+  jov_theme
+
+```
+```{r}
+p <- ggarrange(phasets, radts, ncol = 1, align = "hv") 
+
+p
+```
+```{r}
+ggsave(filename="jov_figures/landing.pdf", plot=p, width=19, height = 13, units = "cm")
+```
+
 

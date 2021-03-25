@@ -309,7 +309,6 @@ ggsave(filename="jov_figures/trial_illustr.pdf", plot=pp, width=19, height = 13,
 
 ## avg absolute positional/radius/phase difference at target reappearance
 
-The object was tracked closely during occlusion, the average total positional error (angular displacement between gaze positionand target object position) being 5.91 degrees at target reappearance (SD 4.92). Correspondingly, the average absolute phase differencewas 0.07 turns *(SD 0.07)* and radius difference 2.01 degrees (SD 1.87). 
 
 ```{r}
 df_trials %>%
@@ -327,9 +326,6 @@ df_trials %>%
 
 ```
 
-In the discrimination task, the success rate by participant rangedfrom 32 to 75 percent, with an overall rate of *57 percent*. When gaze was close to target (position error at most 1.5 degrees), the overallsuccess rate was over 90 percent
-
-
 
 ```{r}
 df_trials %>% filter(trial_type == "occluded_trial", target_class == "Target") %>% 
@@ -338,6 +334,7 @@ df_trials %>% filter(trial_type == "occluded_trial", target_class == "Target") %
   summarise(success_rate = mean(success_trial)) %>%
   arrange(success_rate)
 
+# success rate when gaze is close to target
 df_trials %>% 
   filter(trial_type == "occluded_trial", target_class == "Target") %>% 
   group_by(participant, trial_number, success_trial) %>% 
@@ -350,7 +347,6 @@ df_trials %>%
 
 ```
 
-When the object was visible,  itwas tracked by smooth pursuit movements with some small-amplitude saccades (frequency *1.49* saccades/s, amplitude median *1.83 degrees*).  When the object was occluded, the trajectory was tracked mostly by saccadic eye movements - more saccades were made(*2.88* saccades/s), with a median amplitude of *4.49 degrees*
 
 ```{r}
 df_trials %>% 
@@ -390,7 +386,7 @@ seg_data_uncut$sacc_timeseries %>%
   filter(timept == "launch", first_saccade_all) %>%
   ggplot(aes(x=occl_ts, y=..density..)) + 
   stat_bin(aes(y=..density..), geom="step", binwidth = .02, size = 1, boundary = 0) + 
-#  geom_vline(xintercept = 0.15, linetype = "dashed") +
+  geom_vline(xintercept = 0.15, linetype = "dashed") +
   labs(x = "Time (s)", y = "Density") + jov_theme)
 
 
@@ -431,9 +427,6 @@ ggsave(filename="jov_figures/saccade_ll.pdf", plot=saccade_ll, width=16, height 
 ```
 
 
-
-The absolute magnitude of phase difference was greater for landing than for launch points for all but oneparticipant (binomial test, p = .021; 
-
 ```{r}
 saccades %>% 
   filter(!vis_saccade) %>% 
@@ -452,10 +445,6 @@ binom.test(9, 10)
 ```
 
 
-overall medians of absolute phase difference were 0.03 turns and *0.05* turns for launch and landingpoints, respectively).In contrast, during visible periods, even though not all saccades were catch-up saccades, they were very smallin terms of the phase covered and did not show clear anticipatory nature (medians of absolute phase difference were 0.01 turns forboth launch and landing points).  
-
-As can be seen in Figure 4, the phase lead of saccade landing points during occlusion was manifoldcompared to landing points in visible periods (0.05 vs. 0.01 turns, respectively).
-
 ```{r}
 
 saccades %>% 
@@ -463,7 +452,7 @@ saccades %>%
   filter(!is.na(timept), trial_type == "occluded_trial", target_class %in% c("Visible", "Occluded")) %>%
   mutate(timept = str_to_title(timept) %>% fct_rev) %>% 
   group_by(timept, target_class) %>%
-  summarise(abs_median_phasediff = median(abs(phase_diff_unwrap))/(2*pi)) 
+  summarise(abs_median_phasediff = median(abs(phase_diff_unwrap)/(2*pi))) 
 
 saccades %>%   
   filter(!vis_saccade) %>% 
@@ -568,7 +557,8 @@ p <-  int_data %>%
   scale_y_continuous(labels = formatterphase, breaks = seq(0, 2, by = .25)*2*pi, limits = c(0, 5)) +
   scale_x_continuous(limits = xlim, breaks = seq(0,3,1)) +
   guides(fill = guide_legend(override.aes = list(alpha = 1))) +
-  jov_theme
+  jov_theme +
+  theme(plot.title = element_text(size=12, hjust= .5))
 
 p
 }
@@ -591,7 +581,7 @@ ggsave(filename="jov_figures/total_phase.pdf", plot=phase_covered, width=19, hei
 ```
 
 
-During periods when the tracked object was visible, the total phase angle coveredwas almost entirely by smooth pursuit (median 91 percent of total phase covered).  During periods of occlusion, considerably less ofthe phase angle was covered by smooth pursuit (median 36 percent; see Figure 5).
+total phase covered by pursuit
 
 ```{r}
 
@@ -638,8 +628,6 @@ binom.test(10, 10)
 ```
 
 ## Pursuit duration and phase / saccade frequency & amplitude
-
-In occluded periods, pursuit duration was shorter (see *Appendix X*) and the phase angle covered by pursuit segments was smaller com-pared to visible periods
 
 
 ```{r}
@@ -762,9 +750,6 @@ amp_ref <- data.frame(target_class2 = rep(c("Visible only","Occluded only", "Vis
 
 ```
 
-Regression slopes were comparedto the constant speed of the target to assess pursuit gain, which was as high as *0.98* during visible periods but only *0.33* during occlusion. 
-
-*Based on random effects of the model, pursuit gain was at least 0.95 in visible and between 0.16 and 0.49 in the occluded condition for all participants*
 
 Same results with separate LMs
 
@@ -1069,14 +1054,9 @@ diff3 <- ts_interp_radius %>%
 ggsave(filename="jov_figures/diff_panels.pdf", plot=diff_plots, width=19, height = 14, units = "cm")
 ```
 
-*Calculated by taking the participant-wise median of linearly interpolated time series. Lines smoothed by rolling mean (window width 0.24 s).*
-
 
 
 ## Phase and radius SD over time
-
-the phase difference showed clear increase in variance over time:  after theinitial 0.5 seconds, the phase difference SD increased at about 0.025 turns per second (LMM of phase difference SD predicted by time,with random intercept and slope by participant; p ¡ .001, *t(9) = 6.018* by Satterthwaite’s degree of freedom method). *Based on the random effects of the model, the slopes for participants varied between 0.01 and 0.04 turns per second.* 
-
 
 
 ```{r}

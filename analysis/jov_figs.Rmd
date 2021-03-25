@@ -643,7 +643,7 @@ pursuit_classes <- seg_data_uncut$pursuit %>%
   mutate(abs_phasedist = abs(phasedist))
 
 
-pg_lmm1 <- lmerTest::lmer(phasedist ~ seg_dur*target_class2 + (seg_dur*target_class2|participant),
+pg_lmm1 <- lmerTest::lmer(phasedist ~ seg_dur*target_class2 + (seg_dur|participant),
                           data = pursuit_classes %>%
                mutate(target_class2 = fct_relevel(target_class2, "Visible only"),
                       abs_phasedist = abs_phasedist/(2*pi),
@@ -655,10 +655,10 @@ pg_lmm1 <- lmerTest::lmer(phasedist ~ seg_dur*target_class2 + (seg_dur*target_cl
 #                       abs_phasedist = abs_phasedist/(2*pi),
 #                       phasedist = phasedist/(2*pi)))
 
-summary(pg_lm)
+summary(pg_lmm1)
 
 
-slopes <- broom::tidy(pg_lmm1, effects = "fixed") %>%
+slopes <- broom.mixed::tidy(pg_lmm1, effects = "fixed") %>%
   select(term, estimate) %>%
   mutate(term = recode(term, "seg_dur" = "visible_ref", 
                        "target_class2Occluded only" = "occluded_main",
@@ -682,6 +682,7 @@ slopes <- broom::tidy(pg_lmm1, effects = "fixed") %>%
   geom_point(alpha = .2, pch = 16) +
   geom_line(aes(seg_dur, .fixed, linetype = factor(sprintf("%.2f",pg)) %>% fct_rev), alpha = 1, inherit.aes = F) +
     scale_y_continuous(limits = c(0, .52)) +
+    scale_x_continuous(breaks = c(0, 1, 2)) +
   labs(color = "", linetype = "Pursuit gain", 
        x = "Pursuit duration (s)", y = "Phase covered (turns)") +
   scale_color_manual(values = c("Occluded only" = "#5966de", "Visible only" = "#3d9c67", "Visible and occluded" = "black")) +
@@ -690,6 +691,17 @@ slopes <- broom::tidy(pg_lmm1, effects = "fixed") %>%
     guides(color = guide_legend(override.aes = list(alpha = 1, size = 1.5))))
 
 ```
+
+```{r}
+r2_nakagawa(pg_lmm1)
+
+summary(lmerTest::lmer(phasedist/0.25 ~ seg_dur*target_class2 + (seg_dur|participant),
+                          data = pursuit_classes %>%
+               mutate(target_class2 = fct_relevel(target_class2, "Visible only"),
+                      abs_phasedist = abs_phasedist/(2*pi),
+                      phasedist = phasedist/(2*pi))))
+```
+
 
 ```{r}
 
@@ -792,6 +804,8 @@ Same results with separate LMs
 
 lme4::ranef(pg_lmm1) %>%
   data.frame() %>%
+  mutate(grp = as.character(grp)) %>%
+  full_join(expand.grid(grp = c(1:10) %>% as.character,  term = c("target_class2Visible and occluded", "target_class2Occluded only", "seg_dur:target_class2Visible and occluded", "seg_dur:target_class2Occluded only"))) %>%
   full_join(broom::tidy(pg_lmm1, effects = "fixed") %>% select(term, estimate)) %>%
     mutate(term = recode(term, "seg_dur" = "visible_ref",
                         "seg_dur:target_class2Visible only" = "vis_int",
@@ -800,6 +814,7 @@ lme4::ranef(pg_lmm1) %>%
                        "seg_dur:target_class2Occluded only" = "occluded_int",
                        "seg_dur:target_class2Visible and occluded" = "vishid_int",
                        "(Intercept)" = "IC")) %>%
+  mutate(condval = ifelse(is.na(condval), 0, condval)) %>%
   mutate(estimate = estimate + condval) %>%
   select(grp, term, estimate) %>%
   spread(term, estimate) %>%
@@ -812,13 +827,16 @@ lme4::ranef(pg_lmm1) %>%
 
 
 ```
+
+
+
 ```{r}
 p <- ggarrange(pursuitplot, ampref_trial, ncol = 2, align = "hv", common.legend = T, legend = "right") 
 
 p
 ```
 ```{r}
-ggsave(filename="jov_figures/pursuit_saccade_gain.pdf", plot=p, width=19, height = 9, units = "cm")
+ggsave(filename="jov_figures/pursuit_saccade_gain.pdf", plot=p, width=19, height = 8, units = "cm")
 
 ```
 
@@ -953,7 +971,7 @@ diff1 <- ts_interp %>%
   summarise(gt_abs_dist = median(gt_abs_dist)) %>%
   group_by(participant) %>%
   arrange(participant, occl_ts2) %>%
-  mutate(GM = rollmean(gt_abs_dist, k=15, fill=NA, align="center")) %>% 
+  mutate(GM = rollmedian(gt_abs_dist, k=15, fill=NA, align="center")) %>% 
   ungroup %>%
   filter(!is.na(GM)) %>%
     ggplot(aes(occl_ts2, GM)) +  
@@ -989,7 +1007,7 @@ diff2 <- ts_interp_phase %>%
   summarise(phase_diff_unwrap = median(phase_diff_unwrap)) %>%
   group_by(participant) %>%
   arrange(participant, occl_ts2) %>%
-  mutate(GM = rollmean(phase_diff_unwrap, k=15, fill=NA, align="center")) %>%
+  mutate(GM = rollmedian(phase_diff_unwrap, k=15, fill=NA, align="center")) %>%
   ungroup %>%
   filter(!is.na(GM)) %>%
   ggplot(aes(occl_ts2, GM)) +  
@@ -998,7 +1016,7 @@ diff2 <- ts_interp_phase %>%
   geom_line(data = reflines_phase, aes(occl_ts, value, linetype = refline %>% fct_rev)) +
   labs(x = "Time (s)", y = "Phase difference\n(turns)", linetype = "Reference line", color = "Participant") +
   scale_color_d3() + 
-  scale_y_continuous(labels = formatterphase, breaks = seq(-.75, .25, by = .25)*2*pi, limits = c(-2.4, .5)) +
+  scale_y_continuous(labels = formatterphase, breaks = seq(-.75, .25, by = .25)*2*pi, limits = c(-2.4, .8)) +
   scale_x_continuous(limits = c(-.5, 3)) +
   jov_theme
 
@@ -1026,7 +1044,7 @@ diff3 <- ts_interp_radius %>%
   summarise(radius_diff = median(radius_diff)) %>%
   group_by(participant) %>%
   arrange(participant, occl_ts2) %>%
-  mutate(GM = rollmean(radius_diff, k=15, fill=NA, align="center")) %>%
+  mutate(GM = rollmedian(radius_diff, k=15, fill=NA, align="center")) %>%
   ungroup %>%
   filter(!is.na(GM)) %>%
     ggplot(aes(occl_ts2, GM)) +  
@@ -1069,6 +1087,8 @@ r <- lmerTest::lmer(value ~ ts + (ts|participant), data = sddata %>%
 
 
 summary(r)
+
+r2_nakagawa(r)
 
 
 lme4::ranef(r) %>%

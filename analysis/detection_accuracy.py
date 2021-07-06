@@ -114,6 +114,8 @@ def plot_detection_data():
 def fit_detection_data():
     # TODO: Do this in (approx) view degrees!
     dets = get_detection_data()
+
+    #dets.to_csv("detection_data.csv")
     
     #dets = dets.query("scenario == 'peripheralVisionTest'")
     dets = dets.query("scenario == 'swing'")
